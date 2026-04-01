@@ -407,19 +407,38 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  pointer-events: auto;
 }
 
 .modal-inspection {
   width: 900px;
-  max-height: 85vh;
+  max-height: 90vh;
   background: #ffffff;
   border-radius: 16px;
   display: grid;
   grid-template-columns: 1.1fr 1fr;
   overflow: hidden;
   box-shadow: 0 25px 60px rgba(0,0,0,0.25);
+  pointer-events: auto;
+  z-index: 1001;
+  overflow-y: auto;        /* enable vertical scroll */
+  scrollbar-width: thin;
 }
 
+/* Chrome scrollbar */
+.modal-inspection::-webkit-scrollbar {
+  width: 6px;
+}
+
+.modal-inspection::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+
+.inspection-left {
+  max-height: 80vh;
+  overflow-y: auto;
+}
 
 /* LEFT */
 .inspection-left {
@@ -925,4 +944,94 @@ input {
   background: #f8f9fa;
   padding: 18px;
   border-radius: 12px;
+}
+
+
+.validation-panel {
+  margin-top: 12px;
+  padding: 14px;
+  background: #ffffff;              /* ✅ white card */
+  border: 1px solid #e2e8f0;       /* light border */
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.validation-row code {
+  font-family: monospace;
+  font-size: 12px;
+  background: #f1f5f9;
+  padding: 4px 6px;
+  border-radius: 4px;
+  color: #0f172a;
+
+  max-width: 220px;
+
+  /* 🔥 FIXES OVERFLOW */
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
+
+.validation-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;  /* fixed label width */
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 10px;
+}
+
+.validation-row label {
+  color: #334155;       /* darker, readable */
+  font-size: 13px;      /* bigger */
+  font-weight: 500;     /* slightly bold */
+}
+
+.validation-row code {
+  font-family: monospace;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  color: #5b5c5e;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.validation-row .ok {
+  color: #16a34a;   /* your green */
+  font-weight: 600;
+}
+
+.validation-row .fail {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.validation-final {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+  text-align: center;
+  font-weight: 600;
+  color: #334155;
+}
+
+.validation-panel:hover {
+  border-color: #475569;
+}
+
+.validation-panel.success {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.validation-panel.fail {
+  border-color: #eb9d9d;
+  background: #fef2f2;
+}
+
+.validation-panel h4 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1e293b;
 }

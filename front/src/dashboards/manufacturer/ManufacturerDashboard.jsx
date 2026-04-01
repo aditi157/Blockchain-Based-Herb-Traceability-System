@@ -3,8 +3,6 @@ import Sidebar from "../../components/Sidebar"
 import ApprovedResults from "./ApprovedResults"
 import MyBatches from "./MyBatches"
 
-
-
 function ManufacturerDashboard() {
   const [activeTab, setActiveTab] = useState("approved")
 

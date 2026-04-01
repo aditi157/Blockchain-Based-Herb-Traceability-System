@@ -1,201 +1,148 @@
-import React, { useState } from "react";
-import { verifySignature } from "../utils/crypto.utils";
-import { generateHash } from "../utils/hashUtils";
-import ValidationResultModal from "./ValidationResultModal";
+import React, { useState } from "react"
+import {
+  verifySignature,
+  buildCollectionCanonical,
+  buildLabResultCanonical,
+  generateHash
+} from "../utils/crypto"
+import ValidationResultModal from "./ValidationResultModal"
 
 const ManufacturerResultModal = ({ result, onClose }) => {
-  const collection = result?.collection;
+  const collection = result?.collection
 
-  const [farmerValidation, setFarmerValidation] = useState(null);
-  const [labValidation, setLabValidation] = useState(null);
-  const [showFarmerModal, setShowFarmerModal] = useState(false);
-  const [showLabModal, setShowLabModal] = useState(false);
-  const [isValidatingFarmer, setIsValidatingFarmer] = useState(false);
-  const [isValidatingLab, setIsValidatingLab] = useState(false);
+  const [farmerValidation, setFarmerValidation] = useState(null)
+  const [labValidation, setLabValidation] = useState(null)
+  const [showFarmerModal, setShowFarmerModal] = useState(false)
+  const [showLabModal, setShowLabModal] = useState(false)
+  const [isValidatingFarmer, setIsValidatingFarmer] = useState(false)
+  const [isValidatingLab, setIsValidatingLab] = useState(false)
 
-  if (!result || !collection) return null;
+  if (!result || !collection) return null
 
   // ===============================
   // FARMER VALIDATION
   // ===============================
-  // const validateFarmerSignature = async () => {
-  //   setIsValidatingFarmer(true);
+  const validateFarmerSignature = async () => {
+    const c = collection
 
-  //   try {
-  //     const computedHash = await generateHash(collection.canonicalData);
-
-  //     const hashMatch = computedHash === collection.hash;
-
-  //     const signatureValid = await verifySignature(
-  //       collection.farmer.publicKey,
-  //       collection.hash,
-  //       collection.signature
-  //     );
-
-  //     setFarmerValidation({
-  //       stored: collection.hash,
-  //       computed: computedHash,
-  //       hashMatch,
-  //       signatureValid,
-  //     });
-  //   } catch (error) {
-  //     setFarmerValidation({
-  //       stored: collection.hash || "N/A",
-  //       computed: "Error",
-  //       hashMatch: false,
-  //       signatureValid: false,
-  //       error: error.message,
-  //     });
-  //   } finally {
-  //     setIsValidatingFarmer(false);
-  //     setShowFarmerModal(true);
-  //   }
-  // };
-
-const validateFarmerSignature = async () => {
-  setIsValidatingFarmer(true)
-
-  try {
-    const canonical = buildCollectionCanonical({
-      collectionId: collection.id,
-      herbName: collection.herbName,
-      quantity: collection.quantity,
-      farmerCode: collection.farmer.orgCode,
-      assignedLabId: collection.assignedLabId,
-      location: collection.location,
-      timestamp: collection.canonicalTimestamp
-    })
-
-    const computedHash = await generateHash(canonical)
-    const hashMatch = computedHash === collection.hash
-
-    let signatureValid = false
-    if (hashMatch) {
-      signatureValid = await verifySignature(
-        collection.farmer.publicKey,
-        canonical,   // ✅ FIXED
-        collection.signature
-      )
+    if (!c?.farmer?.publicKey) {
+      console.error("Missing farmer data", c)
+      return
     }
 
-    setFarmerValidation({
-      stored: collection.hash,
-      computed: computedHash,
-      hashMatch,
-      signatureValid,
-    })
-  } catch (error) {
-    setFarmerValidation({
-      stored: collection.hash || "N/A",
-      computed: "Error",
-      hashMatch: false,
-      signatureValid: false,
-      error: error.message,
-    })
-  } finally {
-    setIsValidatingFarmer(false)
-    setShowFarmerModal(true)
-  }
-}
+    setIsValidatingFarmer(true)
 
+    try {
+      const canonical = buildCollectionCanonical({
+        collectionId: c.id,
+        herbName: c.herbName,
+        quantity: c.quantity,
+        farmerCode: c.farmer.orgCode,
+        assignedLabId: c.assignedLabId,
+        location: c.location,
+        timestamp: c.canonicalTimestamp
+      })
+
+      const computedHash = await generateHash(canonical)
+      const hashMatch = computedHash === c.hash
+
+      let signatureValid = false
+      if (hashMatch) {
+        signatureValid = await verifySignature(
+          c.farmer.publicKey,
+          canonical,
+          c.signature
+        )
+      }
+
+      setFarmerValidation({
+        stored: c.hash,
+        computed: computedHash,
+        hashMatch,
+        signatureValid,
+      })
+    } catch (error) {
+      console.error("Farmer validation error:", error)
+      setFarmerValidation({
+        stored: c.hash || "N/A",
+        computed: "Error",
+        hashMatch: false,
+        signatureValid: false,
+        error: error.message,
+      })
+    } finally {
+      setIsValidatingFarmer(false)
+      setShowFarmerModal(true)
+    }
+  }
 
   // ===============================
   // LAB VALIDATION
   // ===============================
-  // const validateLabSignature = async () => {
-  //   setIsValidatingLab(true);
-
-  //   try {
-  //     const computedHash = await generateHash(result.canonicalData);
-
-  //     const hashMatch = computedHash === result.resultHash;
-
-  //     const signatureValid = await verifySignature(
-  //       result.lab.publicKey,
-  //       result.resultHash,
-  //       result.resultSignature
-  //     );
-
-  //     setLabValidation({
-  //       stored: result.resultHash,
-  //       computed: computedHash,
-  //       hashMatch,
-  //       signatureValid,
-  //     });
-  //   } catch (error) {
-  //     setLabValidation({
-  //       stored: result.resultHash || "N/A",
-  //       computed: "Error",
-  //       hashMatch: false,
-  //       signatureValid: false,
-  //       error: error.message,
-  //     });
-  //   } finally {
-  //     setIsValidatingLab(false);
-  //     setShowLabModal(true);
-  //   }
-  // };
-
-const validateLabSignature = async () => {
-  setIsValidatingLab(true)
-
-  try {
-    const canonical = buildLabResultCanonical({
-      labResultId: result.id,
-      collectionId: result.collectionId,
-      labCode: result.lab.orgCode,
-      result: result.result,
-      remarks: result.remarks,
-      assignedMfgId: result.assignedMfgId,
-      timestamp: result.canonicalTimestamp
-    })
-
-    const computedHash = await generateHash(canonical)
-    const hashMatch = computedHash === result.hash
-
-    let signatureValid = false
-    if (hashMatch) {
-      signatureValid = await verifySignature(
-        result.lab.publicKey,
-        canonical,   // ✅ FIXED
-        result.signature
-      )
+  const validateLabSignature = async () => {
+    if (!result?.lab?.publicKey) {
+      console.error("Missing lab data", result)
+      return
     }
 
-    setLabValidation({
-      stored: result.hash,
-      computed: computedHash,
-      hashMatch,
-      signatureValid,
-    })
-  } catch (error) {
-    setLabValidation({
-      stored: result.hash || "N/A",
-      computed: "Error",
-      hashMatch: false,
-      signatureValid: false,
-      error: error.message,
-    })
-  } finally {
-    setIsValidatingLab(false)
-    setShowLabModal(true)
+    setIsValidatingLab(true)
+
+    try {
+      const canonical = buildLabResultCanonical({
+        labResultId: result.id,
+        collectionId: result.collectionId,
+        labCode: result.lab.orgCode,
+        result: result.result,
+        remarks: result.remarks,
+        assignedMfgId: result.assignedMfgId,
+        timestamp: result.canonicalTimestamp
+      })
+
+      const computedHash = await generateHash(canonical)
+      const hashMatch = computedHash === result.hash
+
+      let signatureValid = false
+      if (hashMatch) {
+        signatureValid = await verifySignature(
+          result.lab.publicKey,
+          canonical,
+          result.signature
+        )
+      }
+
+      setLabValidation({
+        stored: result.hash,
+        computed: computedHash,
+        hashMatch,
+        signatureValid,
+      })
+    } catch (error) {
+      console.error("Lab validation error:", error)
+      setLabValidation({
+        stored: result.hash || "N/A",
+        computed: "Error",
+        hashMatch: false,
+        signatureValid: false,
+        error: error.message,
+      })
+    } finally {
+      setIsValidatingLab(false)
+      setShowLabModal(true)
+    }
   }
-}
-
-
 
   return (
     <>
       <div className="modal-backdrop">
         <div className="modal-inspection">
 
-          {/* LEFT: COLLECTION INFO */}
+          {/* LEFT */}
           <div className="inspection-left">
             <h3>Collection Details</h3>
 
             <div className="info-block">
               <label>Collection ID</label>
-              <span>{collection.collectionId}</span>
+              <span>{collection.id}</span>
             </div>
 
             <div className="info-block">
@@ -210,7 +157,7 @@ const validateLabSignature = async () => {
 
             <div className="info-block">
               <label>Farmer</label>
-              <span>{collection.farmerOrgName}</span>
+              <span>{collection.farmer?.name || "—"}</span>
             </div>
 
             <hr />
@@ -224,7 +171,7 @@ const validateLabSignature = async () => {
             </button>
           </div>
 
-          {/* RIGHT: LAB RESULT + ACTION */}
+          {/* RIGHT */}
           <div className="inspection-right">
             <div className="decision-header">
               <h4>Lab Result</h4>
@@ -237,7 +184,7 @@ const validateLabSignature = async () => {
 
             <div className="info-block">
               <label>Lab</label>
-              <span>{result.labOrgCode}</span>
+              <span>{result.lab?.orgCode || "—"}</span>
             </div>
 
             <div className="info-block">
@@ -249,7 +196,10 @@ const validateLabSignature = async () => {
 
             <button
               className="btn-secondary"
-              onClick={validateLabSignature}
+              onClick={() => {
+    console.log("LAB BUTTON CLICKED")
+    validateLabSignature()
+  }}
               disabled={isValidatingLab}
             >
               {isValidatingLab ? "Validating..." : "Validate Lab Signature"}
@@ -286,8 +236,7 @@ const validateLabSignature = async () => {
         />
       )}
     </>
-  );
-};
+  )
+}
 
-export default ManufacturerResultModal;
-
+export default ManufacturerResultModal

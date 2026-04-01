@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react"
+import {
+  generateHash,
+  verifySignature,
+  buildLabResultCanonical
+} from "../../utils/crypto"
 
 const ApprovedResults = () => {
   const [results, setResults] = useState([])
   const [selected, setSelected] = useState(null)
-
+const [labValidation, setLabValidation] = useState(null)
+const [validatingLab, setValidatingLab] = useState(false)
   const [batchName, setBatchName] = useState("")
   const [herbUsedQuantity, setHerbUsedQuantity] = useState("")
   const [finalProductQuantity, setFinalProductQuantity] = useState("")
@@ -20,6 +26,59 @@ const ApprovedResults = () => {
   }
 
   useEffect(() => { load() }, [])
+
+  const handleValidateLab = async () => {
+  const r = selected
+
+  if (!r?.lab?.publicKey) {
+    console.error("Missing lab data", r)
+    return
+  }
+
+  setValidatingLab(true)
+  //setLabValidation(null)
+
+
+  try {
+    const canonical = buildLabResultCanonical({
+      labResultId: r.id,
+      collectionId: r.collectionId,
+      labCode: r.lab.orgCode,
+      result: r.result,
+      remarks: r.remarks,
+      assignedMfgId: r.assignedMfgId,
+      timestamp: r.canonicalTimestamp
+    })
+
+    const computedHash = await generateHash(canonical)
+    const hashMatch = computedHash === r.hash
+
+    let signatureValid = false
+    if (hashMatch) {
+      signatureValid = await verifySignature(
+        r.lab.publicKey,
+        canonical,
+        r.signature
+      )
+    }
+
+    setLabValidation({
+  storedHash: r.hash,
+  computedHash,
+  hashMatch,
+  signatureValid,
+  signer: r.lab.orgCode,
+  timestamp: r.canonicalTimestamp,
+  valid: hashMatch && signatureValid
+})
+
+  } catch (err) {
+    console.error("Lab validation error:", err)
+    setLabValidation({ valid: false })
+  } finally {
+    setValidatingLab(false)
+  }
+}
 
   const handleCreateBatch = async () => {
     try {
@@ -134,9 +193,72 @@ const ApprovedResults = () => {
                 <span>{selected.remarks || "—"}</span>
               </div>
 
-              <button className="ghost-btn">
-                Validate Lab Signature
-              </button>
+              <button
+  className="ghost-btn"
+  onClick={handleValidateLab}
+  disabled={validatingLab}
+>
+  {validatingLab ? "Validating..." : "Validate Lab Signature"}
+</button>
+
+{labValidation && (
+  <div className={`validation-panel ${labValidation.valid ? "success" : "fail"}`}>
+  <h4>Verification Report</h4>
+  
+
+  <div className="validation-row">
+    <label>Stored Hash</label>
+    <details>
+  <summary style={{ cursor: "pointer", color: "#16a34a" }}>
+    Show Hash
+  </summary>
+  <code>{labValidation.storedHash}</code>
+</details>
+  </div>
+
+  <div className="validation-row">
+    <label>Recomputed Hash</label>
+    <details>
+  <summary style={{ cursor: "pointer", color: "#16a34a" }}>
+    Show Hash
+  </summary>
+  <code>{labValidation.computedHash}</code>
+</details>
+  </div>
+
+  <div className="validation-row">
+    <label>Hash Integrity</label>
+    <span className={labValidation.hashMatch ? "ok" : "fail"}>
+      {labValidation.hashMatch ? "MATCH " : "MISMATCH "}
+    </span>
+  </div>
+
+  <div className="validation-row">
+    <label>Signature</label>
+    <span className={labValidation.signatureValid ? "ok" : "fail"}>
+      {labValidation.signatureValid
+        ? "VALID (ECDSA P-256) "
+        : "INVALID "}
+    </span>
+  </div>
+
+  <div className="validation-row">
+    <label>Signed By</label>
+    <span>{labValidation.signer}</span>
+  </div>
+
+  <div className="validation-row">
+    <label>Timestamp</label>
+    <span>{labValidation.timestamp}</span>
+  </div>
+
+  <div className="validation-final">
+    {labValidation.valid
+      ? "Record Verified & Untampered"
+      : "Integrity Compromised"}
+  </div>
+</div>
+)}
             </div>
 
             {/* RIGHT PANEL */}

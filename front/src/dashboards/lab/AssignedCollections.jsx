@@ -374,19 +374,26 @@ const AssignedCollections = () => {
         transitSigValid
 
       setValidationResult({
-        valid: allValid,
-        dbValid: dbData.valid,
-        dbReason: dbData.reason,
-        transitHashMatch,
-        transitSigValid,
-        reason: !dbData.valid
-          ? dbData.reason
-          : !transitHashMatch
-          ? "Hash mismatch in transit — data may have been altered"
-          : !transitSigValid
-          ? "Signature invalid in transit"
-          : null
-      })
+  valid: allValid,
+  dbValid: dbData.valid,
+  dbReason: dbData.reason,
+  transitHashMatch,
+  transitSigValid,
+
+  // ✅ ADD THESE (THIS IS THE FIX)
+  storedHash: c.hash,
+  computedHash,
+  signer: c.farmer.orgCode,
+  timestamp: c.canonicalTimestamp,
+
+  reason: !dbData.valid
+    ? dbData.reason
+    : !transitHashMatch
+    ? "Hash mismatch in transit — data may have been altered"
+    : !transitSigValid
+    ? "Signature invalid in transit"
+    : null
+})
 
 console.log("DB Result:", dbData)
 console.log("Transit Hash Match:", transitHashMatch)
@@ -530,25 +537,70 @@ console.log("Transit Signature Valid:", transitSigValid)
               </button>
 
               {validationResult && (
-                <div
-                  className={`validation-result ${validationResult.valid ? "valid" : "invalid"}`}
-                  style={{ marginTop: "12px" }}
-                >
-                  <div className="validation-icon">
-                    {validationResult.valid ? "✔" : "✖"}
-                  </div>
-                  <h2>{validationResult.valid ? "Record Valid" : "Record Compromised"}</h2>
+                <div className={`validation-panel ${validationResult.valid ? "success" : "fail"}`}>
 
-                  <div style={{ fontSize: "12px", marginTop: "8px", textAlign: "left" }}>
-                    <div>DB — Hash: {validationResult.dbValid ? "✓" : "✗"}</div>
-                    <div>Transit — Hash: {validationResult.transitHashMatch ? "✓" : "✗"}</div>
-                    <div>Transit — Sig: {validationResult.transitSigValid ? "✓" : "✗"}</div>
-                  </div>
+  <h4>Verification Report</h4>
 
-                  {!validationResult.valid && (
-                    <p className="validation-message">{validationResult.reason}</p>
-                  )}
-                </div>
+  <div className="validation-row">
+    <label>Stored Hash</label>
+    <details>
+  <summary style={{ cursor: "pointer", color: "#16a34a" }}>
+    Show Hash
+  </summary>
+  <code>{validationResult.storedHash}</code>
+</details>
+  </div>
+
+  <div className="validation-row">
+    <label>Recomputed Hash</label>
+    <details>
+  <summary style={{ cursor: "pointer", color: "#16a34a" }}>
+    Show Hash
+  </summary>
+  <code>{validationResult.computedHash}</code>
+</details>
+  </div>
+
+  <div className="validation-row">
+    <label>DB Integrity</label>
+    <span className={validationResult.dbValid ? "ok" : "fail"}>
+      {validationResult.dbValid ? "VALID ✔" : "INVALID ✖"}
+    </span>
+  </div>
+
+  <div className="validation-row">
+    <label>Transit Hash</label>
+    <span className={validationResult.transitHashMatch ? "ok" : "fail"}>
+      {validationResult.transitHashMatch ? "MATCH ✔" : "MISMATCH ✖"}
+    </span>
+  </div>
+
+  <div className="validation-row">
+    <label>Transit Signature</label>
+    <span className={validationResult.transitSigValid ? "ok" : "fail"}>
+      {validationResult.transitSigValid ? "VALID ✔" : "INVALID ✖"}
+    </span>
+  </div>
+
+  <div className="validation-row">
+    <label>Signed By</label>
+    <span>{validationResult.signer}</span>
+  </div>
+
+  <div className="validation-row">
+    <label>Timestamp</label>
+    <span>{validationResult.timestamp}</span>
+  </div>
+
+  <div className="validation-final">
+    {validationResult.valid
+      ? "Record Verified & Untampered"
+      : "Integrity Compromised"}
+  </div>
+
+  
+
+</div>
               )}
             </div>
 

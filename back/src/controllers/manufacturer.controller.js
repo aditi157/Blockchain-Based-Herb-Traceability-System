@@ -189,19 +189,66 @@ export const getApprovedResults = async (req, res) => {
   try {
     const manufacturerId = req.user.id
 
-    const results = await prisma.labResult.findMany({
-      where: {
-        assignedMfgId: manufacturerId,
-        result: "PASS"
-      },
-      include: {
-        lab: true,
-        collection: {
-          include: { farmer: true }
+    // const results = await prisma.labResult.findMany({
+    //   where: {
+    //     assignedMfgId: manufacturerId,
+    //     result: "PASS"
+    //   },
+    //   include: {
+    //     lab: true,
+    //     collection: {
+    //       include: { farmer: true }
+    //     }
+    //   },
+    //   orderBy: { createdAt: "desc" }
+    // })
+
+
+const results = await prisma.labResult.findMany({
+  where: {
+    assignedMfgId: manufacturerId,
+    result: "PASS"
+  },
+  orderBy: { createdAt: "desc" },
+  select: {
+    id: true,
+    collectionId: true,
+    result: true,
+    remarks: true,
+    assignedMfgId: true,
+    canonicalTimestamp: true,   // ✅ REQUIRED
+    hash: true,                 // ✅ REQUIRED
+    signature: true,            // ✅ REQUIRED
+
+    lab: {
+      select: {
+        orgCode: true,
+        publicKey: true         // ✅ REQUIRED for verification
+      }
+    },
+
+    collection: {
+      select: {
+        id: true,
+        herbName: true,
+        quantity: true,
+        location: true,
+        assignedLabId: true,
+        canonicalTimestamp: true,
+        hash: true,
+        signature: true,
+        farmer: {
+          select: {
+            orgCode: true,
+            name: true,
+            publicKey: true
+          }
         }
-      },
-      orderBy: { createdAt: "desc" }
-    })
+      }
+    }
+  }
+})
+
 
     res.json(results)
 
