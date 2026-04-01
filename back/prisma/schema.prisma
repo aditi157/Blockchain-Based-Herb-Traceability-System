@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id         String   @id @default(uuid())
+  orgCode    String   @unique
+  name       String
+  email      String   @unique
+  password   String
+  role       Role
+  publicKey  String   @db.LongText
+  privateKey String   @db.LongText
+  createdAt  DateTime @default(now())
+
+  collections        Collection[] @relation("FarmerCollections")
+  labResults         LabResult[]  @relation("LabResults")
+  assignedLabResults LabResult[]  @relation("ManufacturerAssignments")
+
+  manufacturedBatches ManufacturingBatch[]
+}
+
+model Collection {
+  id                 String   @id @default(uuid())
+  herbName           String
+  quantity           Int
+  location           String?
+  canonicalData      String   @db.LongText
+  canonicalTimestamp String   // ✅ exact timestamp string used during signing
+  hash               String
+  signature          String   @db.LongText
+  farmerId           String
+  assignedLabId      String?
+  createdAt          DateTime @default(now())
+
+  farmer     Organization @relation("FarmerCollections", fields: [farmerId], references: [id])
+  labResults LabResult[]
+}
+
+model LabResult {
+  id                 String   @id @default(uuid())
+  collectionId       String
+  result             String
+  remarks            String?  @db.LongText
+  canonicalData      String   @db.LongText
+  canonicalTimestamp String   // ✅ exact timestamp string used during signing
+  hash               String
+  signature          String   @db.LongText
+  labId              String
+  assignedMfgId      String?
+  createdAt          DateTime @default(now())
+
+  collection Collection @relation(fields: [collectionId], references: [id])
+
+  lab                  Organization         @relation("LabResults", fields: [labId], references: [id])
+  assignedMfg          Organization?        @relation("ManufacturerAssignments", fields: [assignedMfgId], references: [id])
+  manufacturingBatches ManufacturingBatch[]
+}
+
+model ManufacturingBatch {
+  id                    String    @id @default(uuid())
+  batchCode             String    @unique
+  batchName             String?
+  herbUsedQuantity      Int?
+  finalProductQuantity  Int?
+  expiryDate            DateTime?
+  canonicalData         String    @db.LongText
+  canonicalTimestamp    String    // ✅ exact timestamp string used during signing
+  hash                  String
+  signature             String    @db.LongText
+  manufacturerId        String
+  labResultId           String
+  createdAt             DateTime  @default(now())
+
+  manufacturer Organization @relation(fields: [manufacturerId], references: [id])
+  labResult    LabResult    @relation(fields: [labResultId], references: [id])
+}
+
+enum Role {
+  FARMER
+  LAB
+  MANUFACTURER
+  CONSUMER
+}
