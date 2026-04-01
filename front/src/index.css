@@ -1035,3 +1035,32 @@ input {
   font-weight: 600;
   color: #1e293b;
 }
+
+
+/* ===== STATUS PILLS ===== */
+
+.pill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-block;
+}
+
+/* TESTED (green) */
+.pill.pass.active {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+/* ASSIGNED (yellow) */
+.pill.pending.active {
+  background: #fef9c3;
+  color: #ca8a04;
+}
+
+/* COLLECTED (gray) */
+.pill.muted {
+  background: #f1f5f9;
+  color: #64748b;
+}

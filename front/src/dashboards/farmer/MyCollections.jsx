@@ -24,6 +24,17 @@ const MyCollections = () => {
     }
   }
 
+  // ✅ STATUS LOGIC
+  const getStatus = (c) => {
+  if (!c.assignedLabId) return "COLLECTED"
+
+  if (!c.labResults || c.labResults.length === 0) {
+    return "ASSIGNED"
+  }
+
+  return "TESTED"
+}
+
   return (
     <div className="records-section">
       <h2>My Collections</h2>
@@ -39,19 +50,37 @@ const MyCollections = () => {
           <tr>
             <th>Herb</th>
             <th>Quantity</th>
-            <th>Farmer ID</th>
             <th>Assigned Lab</th>
+            <th>Status</th> {/* ✅ NEW */}
             <th>Location</th>
             <th>Created At</th>
           </tr>
         </thead>
+
         <tbody>
           {collections.map((c) => (
-            <tr key={c.id} onClick={() => setSelected(c)} style={{ cursor: "pointer" }}>
+            <tr
+              key={c.id}
+              onClick={() => setSelected(c)}
+              style={{ cursor: "pointer" }}
+            >
               <td>{c.herbName}</td>
               <td>{c.quantity} kg</td>
-              <td>{c.farmer?.orgCode || "—"}</td>
               <td>{c.assignedLabId || "—"}</td>
+
+              {/* ✅ STATUS COLUMN */}
+              <td>
+                <span className={`pill ${
+                  getStatus(c) === "TESTED"
+                    ? "pass active"
+                    : getStatus(c) === "ASSIGNED"
+                    ? "pending active"
+                    : "muted"
+                }`}>
+                  {getStatus(c)}
+                </span>
+              </td>
+
               <td>{c.location || "—"}</td>
               <td>{new Date(c.createdAt).toLocaleString()}</td>
             </tr>
@@ -59,6 +88,7 @@ const MyCollections = () => {
         </tbody>
       </table>
 
+      {/* MODAL (unchanged) */}
       {selected && (
         <div className="modal-overlay" onClick={() => setSelected(null)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
@@ -69,27 +99,12 @@ const MyCollections = () => {
               <ul>
                 <li><strong>Herb:</strong> {selected.herbName}</li>
                 <li><strong>Quantity:</strong> {selected.quantity} kg</li>
-                <li><strong>Farmer ID:</strong> {selected.farmer?.orgCode || "—"}</li>
                 <li><strong>Assigned Lab:</strong> {selected.assignedLabId || "—"}</li>
+                <li><strong>Status:</strong> {getStatus(selected)}</li>
                 <li><strong>Location:</strong> {selected.location || "—"}</li>
                 <li><strong>Created At:</strong> {new Date(selected.createdAt).toLocaleString()}</li>
               </ul>
             </div>
-
-            {/* <div className="modal-section">
-              <h3>Blockchain Integrity</h3>
-              <ul>
-                <li><strong>Hash:</strong></li>
-                <code>{selected.hash}</code>
-                <li style={{ marginTop: "10px" }}><strong>Signature:</strong></li>
-                <code>{selected.signature}</code>
-              </ul>
-            </div>
-
-            <div className="modal-section">
-              <h3>Canonical Data</h3>
-              <code>{selected.canonicalData}</code>
-            </div> */}
 
             <button className="modal-close" onClick={() => setSelected(null)}>
               Close

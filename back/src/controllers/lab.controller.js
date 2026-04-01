@@ -277,3 +277,55 @@ export const getResultsForFarmer = async (req, res) => {
     res.status(500).json({ error: "Server error" })
   }
 }
+export const validateLabResult = async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const labResult = await prisma.labResult.findUnique({
+      where: { id },
+      include: {
+        lab: true
+      }
+    })
+
+    if (!labResult) {
+      return res.status(404).json({ error: "Lab result not found" })
+    }
+
+    const rebuiltCanonical = buildLabResultCanonical({
+      labResultId: labResult.id,
+      collectionId: labResult.collectionId,
+      labCode: labResult.lab.orgCode,
+      result: labResult.result,
+      remarks: labResult.remarks,
+      assignedMfgId: labResult.assignedMfgId,
+      timestamp: labResult.canonicalTimestamp
+    })
+
+    const rebuiltHash = generateHash(rebuiltCanonical)
+
+    const canonicalMatch = rebuiltCanonical === labResult.canonicalData
+    const hashMatch = rebuiltHash === labResult.hash
+
+    const signatureValid = verifySignature(
+      labResult.lab.publicKey,
+      rebuiltCanonical,
+      labResult.signature
+    )
+
+    return res.json({
+      valid: hashMatch && signatureValid,
+      dbValid: hashMatch,
+      signatureValid,
+      canonicalMatch,
+      storedHash: labResult.hash,
+      recomputedHash: rebuiltHash,
+      signer: labResult.lab.orgCode,
+      timestamp: labResult.canonicalTimestamp
+    })
+
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "Server error" })
+  }
+}

@@ -38,5 +38,6 @@ router.get(
   validateFarmerSignature
 )
 
+router.get("/:id/validate", validateFarmerSignature)
 
 export default router

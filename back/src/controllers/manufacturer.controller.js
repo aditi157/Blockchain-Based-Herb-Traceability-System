@@ -1,187 +1,9 @@
-// import crypto from "crypto"
-// import prisma from "../config/db.js"
-// import {
-//   generateHash,
-//   signHash,
-//   buildManufacturingCanonical
-// } from "../utils/crypto.utils.js"
-
-// /*
-//   APPROVED LAB RESULTS
-// */
-// export const getApprovedResults = async (req, res) => {
-//   try {
-//     const manufacturerId = req.user.id
-
-//     const results = await prisma.labResult.findMany({
-//       where: {
-//         assignedMfgId: manufacturerId,
-//         result: "PASS"
-//       },
-//       include: {
-//         lab: true,
-//         collection: {
-//           include: {
-//             farmer: true
-//           }
-//         }
-//       },
-//       orderBy: { createdAt: "desc" }
-//     })
-
-//     res.json(results)
-
-//   } catch (err) {
-//     console.error(err)
-//     res.status(500).json({ error: "Server error" })
-//   }
-// }
-
-// /*
-//   CREATE MANUFACTURING BATCH
-// */
-// export const createBatch = async (req, res) => {
-//   try {
-//     const manufacturerId = req.user.id
-
-//     // ✅ FIX: destructure properly
-//     const {
-//       labResultId,
-//       batchName,
-//       herbUsedQuantity,
-//       finalProductQuantity,
-//       expiryDate
-//     } = req.body
-
-//     if (
-//       !labResultId ||
-//       !batchName ||
-//       !herbUsedQuantity ||
-//       !finalProductQuantity ||
-//       !expiryDate
-//     ) {
-//       return res.status(400).json({ error: "Missing required fields" })
-//     }
-
-//     const manufacturer = await prisma.organization.findUnique({
-//       where: { id: manufacturerId }
-//     })
-
-//     if (!manufacturer) {
-//       return res.status(404).json({ error: "Manufacturer not found" })
-//     }
-
-//     // 🔎 Get lab result + collection
-//     const labResult = await prisma.labResult.findUnique({
-//       where: { id: labResultId },
-//       include: {
-//         collection: true
-//       }
-//     })
-
-//     if (!labResult) {
-//       return res.status(404).json({ error: "Lab result not found" })
-//     }
-
-//     // 🔎 Calculate already used quantity
-//     const existingBatches = await prisma.manufacturingBatch.findMany({
-//       where: { labResultId }
-//     })
-
-//     const totalUsed = existingBatches.reduce(
-//       (sum, b) => sum + b.herbUsedQuantity,
-//       0
-//     )
-
-//     if (totalUsed + Number(herbUsedQuantity) > labResult.collection.quantity) {
-//       return res.status(400).json({
-//         error: "Not enough remaining herb quantity"
-//       })
-//     }
-
-//     // Generate sequential BATCH-XXX
-//     const count = await prisma.manufacturingBatch.count()
-//     const batchCode = `BATCH-${String(count + 1).padStart(3, "0")}`
-
-//     const batchId = crypto.randomUUID()
-//     const timestamp = new Date().toISOString()
-
-//     // 🔐 Canonical structure
-//     const canonicalData = buildManufacturingCanonical({
-//       batchId,
-//       batchName,
-//       labResultId,
-//       manufacturerId,
-//       herbUsedQuantity: String(herbUsedQuantity),
-//       finalProductQuantity: String(finalProductQuantity),
-//       expiryDate: new Date(expiryDate).toISOString(),
-//       timestamp
-//     })
-
-//     const hash = generateHash(canonicalData)
-//     const signature = signHash(manufacturer.privateKey, hash)
-
-//     const batch = await prisma.manufacturingBatch.create({
-//       data: {
-//         id: batchId,
-//         batchCode,
-//         batchName,
-//         herbUsedQuantity: Number(herbUsedQuantity),
-//         finalProductQuantity: Number(finalProductQuantity),
-//         expiryDate: new Date(expiryDate),
-//         canonicalData,
-//         hash,
-//         signature,
-//         manufacturerId,
-//         labResultId
-//       }
-//     })
-
-//     res.status(201).json(batch)
-
-//   } catch (err) {
-//     console.error(err)
-//     res.status(500).json({ error: "Server error" })
-//   }
-// }
-
-
-// export const getMyBatches = async (req, res) => {
-//   try {
-//     const manufacturerId = req.user.id
-
-//     const batches = await prisma.manufacturingBatch.findMany({
-//       where: { manufacturerId },
-//       include: {
-//         labResult: {
-//           include: {
-//             lab: true,
-//             collection: {
-//               include: {
-//                 farmer: true
-//               }
-//             }
-//           }
-//         }
-//       },
-//       orderBy: { createdAt: "desc" }
-//     })
-
-//     res.json(batches)
-
-//   } catch (err) {
-//     console.error(err)
-//     res.status(500).json({ error: "Server error" })
-//   }
-// }
-
-
+import { verifySignature, buildManufacturingCanonical } from "../utils/crypto.utils.js"
 import crypto from "crypto"
 import prisma from "../config/db.js"
 import {
   generateHash,
   signData,
-  buildManufacturingCanonical
 } from "../utils/crypto.utils.js"
 
 
@@ -189,68 +11,44 @@ export const getApprovedResults = async (req, res) => {
   try {
     const manufacturerId = req.user.id
 
-    // const results = await prisma.labResult.findMany({
-    //   where: {
-    //     assignedMfgId: manufacturerId,
-    //     result: "PASS"
-    //   },
-    //   include: {
-    //     lab: true,
-    //     collection: {
-    //       include: { farmer: true }
-    //     }
-    //   },
-    //   orderBy: { createdAt: "desc" }
-    // })
-
-
-const results = await prisma.labResult.findMany({
-  where: {
-    assignedMfgId: manufacturerId,
-    result: "PASS"
-  },
-  orderBy: { createdAt: "desc" },
-  select: {
-    id: true,
-    collectionId: true,
-    result: true,
-    remarks: true,
-    assignedMfgId: true,
-    canonicalTimestamp: true,   // ✅ REQUIRED
-    hash: true,                 // ✅ REQUIRED
-    signature: true,            // ✅ REQUIRED
-
-    lab: {
-      select: {
-        orgCode: true,
-        publicKey: true         // ✅ REQUIRED for verification
-      }
-    },
-
-    collection: {
-      select: {
-        id: true,
-        herbName: true,
-        quantity: true,
-        location: true,
-        assignedLabId: true,
-        canonicalTimestamp: true,
-        hash: true,
-        signature: true,
-        farmer: {
-          select: {
-            orgCode: true,
-            name: true,
-            publicKey: true
-          }
+    const results = await prisma.labResult.findMany({
+      where: {
+        assignedMfgId: manufacturerId,
+        result: "PASS"
+      },
+      include: {
+        lab: true,
+        collection: {
+          include: { farmer: true }
         }
       }
-    }
-  }
-})
+    })
 
+    // 🔥 fetch batches separately
+    const enriched = await Promise.all(
+      results.map(async (r) => {
+        const batches = await prisma.manufacturingBatch.findMany({
+          where: { labResultId: r.id }
+        })
 
-    res.json(results)
+        const totalUsed = batches.reduce(
+          (sum, b) => sum + Number(b.herbUsedQuantity || 0),
+          0
+        )
+
+        const original = Number(r.collection?.quantity || 0)
+        const remainingQuantity = original - totalUsed
+
+        return {
+          ...r,
+          remainingQuantity
+        }
+      })
+    )
+
+    const filtered = enriched.filter(r => r.remainingQuantity > 0)
+
+    res.json(filtered)
 
   } catch (err) {
     console.error(err)
@@ -371,6 +169,62 @@ export const getMyBatches = async (req, res) => {
     })
 
     res.json(batches)
+
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "Server error" })
+  }
+}
+
+
+
+export const validateBatch = async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const batch = await prisma.manufacturingBatch.findUnique({
+      where: { id },
+      include: {
+        manufacturer: true
+      }
+    })
+
+    if (!batch) {
+      return res.status(404).json({ error: "Batch not found" })
+    }
+
+    const rebuiltCanonical = buildManufacturingCanonical({
+      batchId: batch.id,
+      batchName: batch.batchName,
+      labResultId: batch.labResultId,
+      manufacturerId: batch.manufacturerId,
+      herbUsedQuantity: String(batch.herbUsedQuantity),
+      finalProductQuantity: String(batch.finalProductQuantity),
+      expiryDate: new Date(batch.expiryDate).toISOString(),
+      timestamp: batch.canonicalTimestamp
+    })
+
+    const rebuiltHash = generateHash(rebuiltCanonical)
+
+    const canonicalMatch = rebuiltCanonical === batch.canonicalData
+    const hashMatch = rebuiltHash === batch.hash
+
+    const signatureValid = verifySignature(
+      batch.manufacturer.publicKey,
+      rebuiltCanonical,
+      batch.signature
+    )
+
+    return res.json({
+      valid: hashMatch && signatureValid,
+      dbValid: hashMatch,
+      signatureValid,
+      canonicalMatch,
+      storedHash: batch.hash,
+      recomputedHash: rebuiltHash,
+      signer: batch.manufacturer.orgCode,
+      timestamp: batch.canonicalTimestamp
+    })
 
   } catch (err) {
     console.error(err)

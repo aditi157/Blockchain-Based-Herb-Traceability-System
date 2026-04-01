@@ -3,7 +3,8 @@ import { requireAuth, requireRole } from "../middleware/auth.middleware.js"
 import {
   createLabResult,
   getPastTests, 
-  getResultsForFarmer
+  getResultsForFarmer,
+  validateLabResult 
 } from "../controllers/lab.controller.js"
 
 const router = express.Router()
@@ -30,5 +31,7 @@ router.get(
   requireRole("FARMER"),
   getResultsForFarmer
 )
+
+router.get("/:id/validate", validateLabResult)
 
 export default router

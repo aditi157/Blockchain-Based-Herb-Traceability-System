@@ -43,7 +43,7 @@ function NewCollection() {
       body: JSON.stringify({
         herbName,
         quantity: Number(quantity),
-        assignedLabId,
+        assignedLabId: assignedLabId || null,
         location,
         timestamp
       }),
@@ -87,7 +87,7 @@ function NewCollection() {
           placeholder="Assigned Lab ID"
           value={assignedLabId}
           onChange={(e) => setAssignedLabId(e.target.value)}
-          required
+
         />
 
         {/* Immutable Timestamp */}

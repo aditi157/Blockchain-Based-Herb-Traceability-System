@@ -8,8 +8,10 @@ import {
 const ApprovedResults = () => {
   const [results, setResults] = useState([])
   const [selected, setSelected] = useState(null)
-const [labValidation, setLabValidation] = useState(null)
-const [validatingLab, setValidatingLab] = useState(false)
+
+  const [labValidation, setLabValidation] = useState(null)
+  const [validatingLab, setValidatingLab] = useState(false)
+
   const [batchName, setBatchName] = useState("")
   const [herbUsedQuantity, setHerbUsedQuantity] = useState("")
   const [finalProductQuantity, setFinalProductQuantity] = useState("")
@@ -27,58 +29,83 @@ const [validatingLab, setValidatingLab] = useState(false)
 
   useEffect(() => { load() }, [])
 
-  const handleValidateLab = async () => {
-  const r = selected
-
-  if (!r?.lab?.publicKey) {
-    console.error("Missing lab data", r)
-    return
+  // 🔥 RESET STATE WHEN NEW RECORD SELECTED
+  const handleSelect = (r) => {
+    setSelected(r)
+    setLabValidation(null)
+    setBatchName("")
+    setHerbUsedQuantity("")
+    setFinalProductQuantity("")
+    setExpiryDate("")
   }
 
-  setValidatingLab(true)
-  //setLabValidation(null)
+  const handleValidateLab = async () => {
+    const r = selected
 
-
-  try {
-    const canonical = buildLabResultCanonical({
-      labResultId: r.id,
-      collectionId: r.collectionId,
-      labCode: r.lab.orgCode,
-      result: r.result,
-      remarks: r.remarks,
-      assignedMfgId: r.assignedMfgId,
-      timestamp: r.canonicalTimestamp
-    })
-
-    const computedHash = await generateHash(canonical)
-    const hashMatch = computedHash === r.hash
-
-    let signatureValid = false
-    if (hashMatch) {
-      signatureValid = await verifySignature(
-        r.lab.publicKey,
-        canonical,
-        r.signature
-      )
+    if (!r?.lab?.publicKey) {
+      console.error("Missing lab data", r)
+      return
     }
 
-    setLabValidation({
-  storedHash: r.hash,
-  computedHash,
-  hashMatch,
-  signatureValid,
-  signer: r.lab.orgCode,
-  timestamp: r.canonicalTimestamp,
-  valid: hashMatch && signatureValid
-})
+    setValidatingLab(true)
+    setLabValidation(null)
 
-  } catch (err) {
-    console.error("Lab validation error:", err)
-    setLabValidation({ valid: false })
-  } finally {
-    setValidatingLab(false)
+    try {
+      const dbRes = await fetch(
+        `http://localhost:5000/api/lab/${r.id}/validate`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      )
+
+      const dbData = await dbRes.json()
+
+      const canonical = buildLabResultCanonical({
+        labResultId: r.id,
+        collectionId: r.collectionId,
+        labCode: r.lab.orgCode,
+        result: r.result,
+        remarks: r.remarks,
+        assignedMfgId: r.assignedMfgId,
+        timestamp: r.canonicalTimestamp
+      })
+
+      const computedHash = await generateHash(canonical)
+      const hashMatch = computedHash === r.hash
+
+      let signatureValid = false
+      if (hashMatch) {
+        signatureValid = await verifySignature(
+          r.lab.publicKey,
+          canonical,
+          r.signature
+        )
+      }
+
+      const allValid =
+        dbData.valid &&
+        hashMatch &&
+        signatureValid
+
+      setLabValidation({
+        valid: allValid,
+        dbValid: dbData.dbValid,
+        backendSignatureValid: dbData.signatureValid,
+        hashMatch,
+        signatureValid,
+        storedHash: r.hash,
+        computedHash,
+        signer: r.lab.orgCode,
+        timestamp: r.canonicalTimestamp
+      })
+
+    } catch (err) {
+      console.error("Lab validation error:", err)
+      setLabValidation({ valid: false })
+    } finally {
+      setValidatingLab(false)
+    }
   }
-}
 
   const handleCreateBatch = async () => {
     try {
@@ -104,12 +131,8 @@ const [validatingLab, setValidatingLab] = useState(false)
         return
       }
 
-      // Reset + close
+      // 🔥 reload + close
       setSelected(null)
-      setBatchName("")
-      setHerbUsedQuantity("")
-      setFinalProductQuantity("")
-      setExpiryDate("")
       load()
 
     } catch (err) {
@@ -129,9 +152,11 @@ const [validatingLab, setValidatingLab] = useState(false)
             <th>Farmer</th>
             <th>Lab</th>
             <th>Decision</th>
+            <th>Remaining</th> {/* ✅ FIXED POSITION */}
             <th>Action</th>
           </tr>
         </thead>
+
         <tbody>
           {results.map(r => (
             <tr key={r.id}>
@@ -139,10 +164,14 @@ const [validatingLab, setValidatingLab] = useState(false)
               <td>{r.collection?.farmer?.orgCode}</td>
               <td>{r.lab?.orgCode}</td>
               <td>{r.result}</td>
+
+              {/* ✅ CORRECT COLUMN */}
+              <td>{r.remainingQuantity} g</td>
+
               <td>
                 <button
                   className="btn-secondary"
-                  onClick={() => setSelected(r)}
+                  onClick={() => handleSelect(r)}
                 >
                   Create Batch
                 </button>
@@ -159,7 +188,7 @@ const [validatingLab, setValidatingLab] = useState(false)
             onClick={(e) => e.stopPropagation()}
           >
 
-            {/* LEFT PANEL */}
+            {/* LEFT */}
             <div className="inspection-left">
               <h3>Lab Result Details</h3>
 
@@ -174,94 +203,64 @@ const [validatingLab, setValidatingLab] = useState(false)
               </div>
 
               <div className="info-block">
-                <label>Farmer ID</label>
-                <span>{selected.collection?.farmer?.orgCode}</span>
-              </div>
-
-              <div className="info-block">
-                <label>Lab ID</label>
-                <span>{selected.lab?.orgCode}</span>
-              </div>
-
-              <div className="info-block">
-                <label>Result</label>
-                <span>{selected.result}</span>
-              </div>
-
-              <div className="info-block">
-                <label>Remarks</label>
-                <span>{selected.remarks || "—"}</span>
+                <label>Remaining Quantity</label>
+                <span>{selected.remainingQuantity} g</span>
               </div>
 
               <button
-  className="ghost-btn"
-  onClick={handleValidateLab}
-  disabled={validatingLab}
->
-  {validatingLab ? "Validating..." : "Validate Lab Signature"}
-</button>
+                className="ghost-btn"
+                onClick={handleValidateLab}
+                disabled={validatingLab}
+              >
+                {validatingLab ? "Validating..." : "Validate Lab Signature"}
+              </button>
 
-{labValidation && (
-  <div className={`validation-panel ${labValidation.valid ? "success" : "fail"}`}>
-  <h4>Verification Report</h4>
-  
+              {labValidation && (
+                <div className={`validation-panel ${labValidation.valid ? "success" : "fail"}`}>
 
-  <div className="validation-row">
-    <label>Stored Hash</label>
-    <details>
-  <summary style={{ cursor: "pointer", color: "#16a34a" }}>
-    Show Hash
-  </summary>
-  <code>{labValidation.storedHash}</code>
-</details>
-  </div>
+                  <h4>Verification Report</h4>
 
-  <div className="validation-row">
-    <label>Recomputed Hash</label>
-    <details>
-  <summary style={{ cursor: "pointer", color: "#16a34a" }}>
-    Show Hash
-  </summary>
-  <code>{labValidation.computedHash}</code>
-</details>
-  </div>
+                  <div className="validation-row">
+                    <label>Stored Hash</label>
+                    <code>{labValidation.storedHash}</code>
+                  </div>
 
-  <div className="validation-row">
-    <label>Hash Integrity</label>
-    <span className={labValidation.hashMatch ? "ok" : "fail"}>
-      {labValidation.hashMatch ? "MATCH " : "MISMATCH "}
-    </span>
-  </div>
+                  <div className="validation-row">
+                    <label>Recomputed Hash</label>
+                    <code>{labValidation.computedHash}</code>
+                  </div>
 
-  <div className="validation-row">
-    <label>Signature</label>
-    <span className={labValidation.signatureValid ? "ok" : "fail"}>
-      {labValidation.signatureValid
-        ? "VALID (ECDSA P-256) "
-        : "INVALID "}
-    </span>
-  </div>
+                  <div className="validation-row">
+                    <label>DB Integrity</label>
+                    <span className={labValidation.dbValid ? "ok" : "fail"}>
+                      {labValidation.dbValid ? "VALID ✔" : "INVALID ✖"}
+                    </span>
+                  </div>
 
-  <div className="validation-row">
-    <label>Signed By</label>
-    <span>{labValidation.signer}</span>
-  </div>
+                  <div className="validation-row">
+                    <label>Transit Hash</label>
+                    <span className={labValidation.hashMatch ? "ok" : "fail"}>
+                      {labValidation.hashMatch ? "MATCH ✔" : "MISMATCH ✖"}
+                    </span>
+                  </div>
 
-  <div className="validation-row">
-    <label>Timestamp</label>
-    <span>{labValidation.timestamp}</span>
-  </div>
+                  <div className="validation-row">
+                    <label>Signature</label>
+                    <span className={labValidation.signatureValid ? "ok" : "fail"}>
+                      {labValidation.signatureValid ? "VALID ✔" : "INVALID ✖"}
+                    </span>
+                  </div>
 
-  <div className="validation-final">
-    {labValidation.valid
-      ? "Record Verified & Untampered"
-      : "Integrity Compromised"}
-  </div>
-</div>
-)}
+                  <div className="validation-final">
+                    {labValidation.valid
+                      ? "Record Verified & Untampered"
+                      : "Integrity Compromised"}
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* RIGHT PANEL */}
+            {/* RIGHT */}
             <div className="inspection-right">
 
               <div className="decision-header">
@@ -288,6 +287,12 @@ const [validatingLab, setValidatingLab] = useState(false)
                 onChange={(e) => setHerbUsedQuantity(e.target.value)}
               />
 
+              {Number(herbUsedQuantity) > selected.remainingQuantity && (
+                <p style={{ color: "red", fontSize: "12px" }}>
+                  Exceeds available quantity
+                </p>
+              )}
+
               <input
                 type="number"
                 placeholder="Final Product Quantity (grams)"
@@ -306,6 +311,7 @@ const [validatingLab, setValidatingLab] = useState(false)
                 disabled={
                   !batchName ||
                   !herbUsedQuantity ||
+                  Number(herbUsedQuantity) > selected.remainingQuantity ||
                   !finalProductQuantity ||
                   !expiryDate
                 }
