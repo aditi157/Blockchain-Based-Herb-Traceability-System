@@ -207,6 +207,12 @@ const ApprovedResults = () => {
                 <span>{selected.remainingQuantity} g</span>
               </div>
 
+              <div className="info-block">
+                <label>Collection ID</label>
+                <span>{selected.collectionId} g</span>
+              </div>
+
+
               <button
                 className="ghost-btn"
                 onClick={handleValidateLab}
@@ -233,21 +239,21 @@ const ApprovedResults = () => {
                   <div className="validation-row">
                     <label>DB Integrity</label>
                     <span className={labValidation.dbValid ? "ok" : "fail"}>
-                      {labValidation.dbValid ? "VALID ✔" : "INVALID ✖"}
+                      {labValidation.dbValid ? "VALID " : "INVALID "}
                     </span>
                   </div>
 
                   <div className="validation-row">
                     <label>Transit Hash</label>
                     <span className={labValidation.hashMatch ? "ok" : "fail"}>
-                      {labValidation.hashMatch ? "MATCH ✔" : "MISMATCH ✖"}
+                      {labValidation.hashMatch ? "MATCH " : "MISMATCH "}
                     </span>
                   </div>
 
                   <div className="validation-row">
                     <label>Signature</label>
                     <span className={labValidation.signatureValid ? "ok" : "fail"}>
-                      {labValidation.signatureValid ? "VALID ✔" : "INVALID ✖"}
+                      {labValidation.signatureValid ? "VALID " : "INVALID "}
                     </span>
                   </div>
 

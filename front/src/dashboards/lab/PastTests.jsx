@@ -194,7 +194,7 @@ const PastTests = () => {
 
               <div className="info-block">
                 <label>Quantity</label>
-                <span>{selected.collection?.quantity} kg</span>
+                <span>{selected.collection?.quantity} g</span>
               </div>
 
               <div className="info-block">
@@ -248,28 +248,28 @@ const PastTests = () => {
     <div className="validation-row">
       <label>DB Integrity</label>
       <span className={validation.dbValid ? "ok" : "fail"}>
-        {validation.dbValid ? "VALID ✔" : "INVALID ✖"}
+        {validation.dbValid ? "VALID " : "INVALID "}
       </span>
     </div>
 
     <div className="validation-row">
       <label>Backend Signature</label>
       <span className={validation.backendSignatureValid ? "ok" : "fail"}>
-        {validation.backendSignatureValid ? "VALID ✔" : "INVALID ✖"}
+        {validation.backendSignatureValid ? "VALID " : "INVALID "}
       </span>
     </div>
 
     <div className="validation-row">
       <label>Transit Hash</label>
       <span className={validation.hashMatch ? "ok" : "fail"}>
-        {validation.hashMatch ? "MATCH ✔" : "MISMATCH ✖"}
+        {validation.hashMatch ? "MATCH " : "MISMATCH "}
       </span>
     </div>
 
     <div className="validation-row">
       <label>Transit Signature</label>
       <span className={validation.signatureValid ? "ok" : "fail"}>
-        {validation.signatureValid ? "VALID ✔" : "INVALID ✖"}
+        {validation.signatureValid ? "VALID " : "INVALID "}
       </span>
     </div>
 

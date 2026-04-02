@@ -152,7 +152,7 @@ const ManufacturerResultModal = ({ result, onClose }) => {
 
             <div className="info-block">
               <label>Quantity</label>
-              <span>{collection.quantity} kg</span>
+              <span>{collection.quantity} g</span>
             </div>
 
             <div className="info-block">

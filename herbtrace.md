@@ -8223,7 +8223,7 @@ const handleValidateFarmer = async () => {
 
 &#x20;   <div className="validation-icon">
 
-&#x20;     {validationResult.valid ? "✔" : "✖"}
+&#x20;     {validationResult.valid ? "" : ""}
 
 &#x20;   </div>
 

@@ -7,6 +7,7 @@ import {
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { getAssignedCollectionsForLab } from "../controllers/collection.controller.js"
 
+
 const router = express.Router()
 
 // Farmer creates collection
@@ -39,5 +40,8 @@ router.get(
 )
 
 router.get("/:id/validate", validateFarmerSignature)
+
+
+
 
 export default router

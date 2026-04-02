@@ -1064,3 +1064,56 @@ input {
   background: #f1f5f9;
   color: #64748b;
 }
+
+.verification-block {
+  margin-bottom: 20px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+  width: 373px;
+}
+
+.verification-block h3 {
+  margin-bottom: 10px;
+  color: #16a34a;
+}
+
+.verification-block code {
+  display: block;
+  overflow-x: auto;
+  background: #f8fafc;
+  padding: 6px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+/* FIX VALIDATION LAYOUT */
+
+.trace-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+}
+
+.validation-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start; /* 🔥 prevents stretching */
+  gap: 8px;
+}
+
+.validation-group button {
+  width: auto;
+  align-self: flex-start; /* 🔥 key fix */
+}
+
+.trace-layout {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.verification-block {
+  min-height: 120px;
+}

@@ -1,66 +1,14 @@
 // import prisma from "../config/db.js"
 // import {
 //   generateHash,
+//   verifySignature,
 //   buildCollectionCanonical,
-//   verifySignature
+//   buildLabResultCanonical,
+//   buildManufacturingCanonical
 // } from "../utils/crypto.utils.js"
 
-// // export const validateFarmer = async (req, res) => {
-// //   try {
-// //     const { batchCode } = req.body
 
-// //     const batch = await prisma.manufacturingBatch.findUnique({
-// //       where: { batchCode },
-// //       include: {
-// //         labResult: {
-// //           include: {
-// //             collection: {
-// //               include: { farmer: true }
-// //             }
-// //           }
-// //         }
-// //       }
-// //     })
-
-// //     if (!batch) {
-// //       return res.status(404).json({ error: "Batch not found" })
-// //     }
-
-// //     const collection = batch.labResult.collection
-// //     const farmer = collection.farmer
-
-// //     // 🔁 REBUILD CANONICAL EXACTLY
-// //     const recomputedCanonical = buildCollectionCanonical({
-// //       collectionId: collection.id,
-// //       herbName: collection.herbName,
-// //       quantity: collection.quantity,
-// //       farmerId: collection.farmerId,
-// //       assignedLabId: collection.assignedLabId,
-// //       location: collection.location,
-// //       timestamp: collection.createdAt.toISOString()
-// //     })
-
-// //     const recomputedHash = generateHash(recomputedCanonical)
-
-// //     const hashMatch = recomputedHash === collection.hash
-
-// //     const signatureValid = verifySignature(
-// //       farmer.publicKey,
-// //       collection.hash,
-// //       collection.signature
-// //     )
-
-// //     res.json({
-// //       hashMatch,
-// //       signatureValid
-// //     })
-
-// //   } catch (err) {
-// //     console.error(err)
-// //     res.status(500).json({ error: "Server error" })
-// //   }
-// // }
-
+// // ================= FARMER =================
 // export const validateFarmer = async (req, res) => {
 //   try {
 //     const { batchCode } = req.body
@@ -85,24 +33,23 @@
 //     const collection = batch.labResult.collection
 //     const farmer = collection.farmer
 
-//     // ✅ FIXED canonical rebuild
 //     const rebuiltCanonical = buildCollectionCanonical({
-//       collectionId: collection.id,
-//       herbName: collection.herbName,
-//       quantity: collection.quantity,
-//       farmerCode: farmer.orgCode,
+//       collectionId:  collection.id,
+//       herbName:      collection.herbName,
+//       quantity:      collection.quantity,
+//       farmerCode:    farmer.orgCode,
 //       assignedLabId: collection.assignedLabId,
-//       location: collection.location,
-//       timestamp: collection.signedTimestamp
+//       location:      collection.location,
+//       timestamp:     collection.canonicalTimestamp
 //     })
 
 //     const rebuiltHash = generateHash(rebuiltCanonical)
-
 //     const hashMatch = rebuiltHash === collection.hash
 
+//     // ✅ FIXED: verify using canonicalData
 //     const signatureValid = verifySignature(
 //       farmer.publicKey,
-//       collection.hash,
+//       collection.canonicalData,
 //       collection.signature
 //     )
 
@@ -110,7 +57,8 @@
 //       hashMatch,
 //       signatureValid,
 //       storedHash: collection.hash,
-//       computedHash: rebuiltHash
+//       computedHash: rebuiltHash,
+//       canonicalData: collection.canonicalData
 //     })
 
 //   } catch (err) {
@@ -120,6 +68,113 @@
 // }
 
 
+// // ================= LAB =================
+// export const validateLab = async (req, res) => {
+//   try {
+//     const { batchCode } = req.body
+
+//     const batch = await prisma.manufacturingBatch.findUnique({
+//       where: { batchCode },
+//       include: {
+//         labResult: {
+//           include: { lab: true }
+//         }
+//       }
+//     })
+
+//     if (!batch) {
+//       return res.status(404).json({ error: "Batch not found" })
+//     }
+
+//     const labResult = batch.labResult
+//     const lab = labResult.lab
+
+//     const rebuiltCanonical = buildLabResultCanonical({
+//       labResultId:   labResult.id,
+//       collectionId:  labResult.collectionId,
+//       labCode:       lab.orgCode,
+//       result:        labResult.result,
+//       remarks:       labResult.remarks,
+//       assignedMfgId: labResult.assignedMfgId,
+//       timestamp:     labResult.canonicalTimestamp
+//     })
+
+//     const rebuiltHash = generateHash(rebuiltCanonical)
+//     const hashMatch = rebuiltHash === labResult.hash
+
+//     // ✅ FIXED
+//     const signatureValid = verifySignature(
+//       lab.publicKey,
+//       labResult.canonicalData,
+//       labResult.signature
+//     )
+
+//     res.json({
+//       hashMatch,
+//       signatureValid,
+//       storedHash: labResult.hash,
+//       computedHash: rebuiltHash,
+//       canonicalData: labResult.canonicalData
+//     })
+
+//   } catch (err) {
+//     console.error(err)
+//     res.status(500).json({ error: "Server error" })
+//   }
+// }
+
+
+// // ================= MANUFACTURER =================
+// export const validateManufacturer = async (req, res) => {
+//   try {
+//     const { batchCode } = req.body
+
+//     const batch = await prisma.manufacturingBatch.findUnique({
+//       where: { batchCode },
+//       include: { manufacturer: true }
+//     })
+
+//     if (!batch) {
+//       return res.status(404).json({ error: "Batch not found" })
+//     }
+
+//     const rebuiltCanonical = buildManufacturingCanonical({
+//       batchId:              batch.id,
+//       batchName:            batch.batchName,
+//       labResultId:          batch.labResultId,
+//       manufacturerId:       batch.manufacturerId,
+//       herbUsedQuantity:     String(batch.herbUsedQuantity),
+//       finalProductQuantity: String(batch.finalProductQuantity),
+//       expiryDate:           new Date(batch.expiryDate).toISOString(),
+//       timestamp:            batch.canonicalTimestamp
+//     })
+
+//     const rebuiltHash = generateHash(rebuiltCanonical)
+//     const hashMatch = rebuiltHash === batch.hash
+
+//     // ✅ FIXED
+//     const signatureValid = verifySignature(
+//       batch.manufacturer.publicKey,
+//       batch.canonicalData,
+//       batch.signature
+//     )
+
+//     res.json({
+//       hashMatch,
+//       signatureValid,
+//       storedHash: batch.hash,
+//       computedHash: rebuiltHash,
+//       canonicalData: batch.canonicalData
+//     })
+
+//   } catch (err) {
+//     console.error(err)
+//     res.status(500).json({ error: "Server error" })
+//   }
+// }
+
+
+// // ================= TRACE =================
 // export const getBatchTrace = async (req, res) => {
 //   try {
 //     const { batchCode } = req.params
@@ -132,9 +187,7 @@
 //           include: {
 //             lab: true,
 //             collection: {
-//               include: {
-//                 farmer: true
-//               }
+//               include: { farmer: true }
 //             }
 //           }
 //         }
@@ -154,6 +207,7 @@
 // }
 
 
+
 import prisma from "../config/db.js"
 import {
   generateHash,
@@ -164,6 +218,7 @@ import {
 } from "../utils/crypto.utils.js"
 
 
+// ================= FARMER =================
 export const validateFarmer = async (req, res) => {
   try {
     const { batchCode } = req.body
@@ -188,28 +243,35 @@ export const validateFarmer = async (req, res) => {
     const collection = batch.labResult.collection
     const farmer = collection.farmer
 
-    // ✅ Rebuild from actual DB field values + stored canonicalTimestamp
-    // farmerCode (orgCode) is used — matching what createCollection stored
     const rebuiltCanonical = buildCollectionCanonical({
       collectionId:  collection.id,
       herbName:      collection.herbName,
       quantity:      collection.quantity,
-      farmerCode:    farmer.orgCode,          // ✅ orgCode not UUID
+      farmerCode:    farmer.orgCode,
       assignedLabId: collection.assignedLabId,
       location:      collection.location,
-      timestamp:     collection.canonicalTimestamp  // ✅ not createdAt
+      timestamp:     collection.canonicalTimestamp
     })
 
     const rebuiltHash = generateHash(rebuiltCanonical)
     const hashMatch = rebuiltHash === collection.hash
 
-    const signatureValid = verifySignature(
-      farmer.publicKey,
-      collection.hash,
-      collection.signature
-    )
+    let signatureValid = false
+    if (hashMatch) {
+      signatureValid = verifySignature(
+        farmer.publicKey,
+        collection.canonicalData,
+        collection.signature
+      )
+    }
 
-    res.json({ hashMatch, signatureValid })
+    res.json({
+      hashMatch,
+      signatureValid,
+      storedHash: collection.hash,
+      computedHash: rebuiltHash,
+      canonicalData: collection.canonicalData
+    })
 
   } catch (err) {
     console.error(err)
@@ -218,6 +280,7 @@ export const validateFarmer = async (req, res) => {
 }
 
 
+// ================= LAB =================
 export const validateLab = async (req, res) => {
   try {
     const { batchCode } = req.body
@@ -238,27 +301,35 @@ export const validateLab = async (req, res) => {
     const labResult = batch.labResult
     const lab = labResult.lab
 
-    // ✅ Rebuild from actual DB field values + stored canonicalTimestamp
     const rebuiltCanonical = buildLabResultCanonical({
       labResultId:   labResult.id,
       collectionId:  labResult.collectionId,
-      labCode:       lab.orgCode,             // ✅ orgCode not UUID
+      labCode:       lab.orgCode,
       result:        labResult.result,
       remarks:       labResult.remarks,
       assignedMfgId: labResult.assignedMfgId,
-      timestamp:     labResult.canonicalTimestamp  // ✅ not createdAt
+      timestamp:     labResult.canonicalTimestamp
     })
 
     const rebuiltHash = generateHash(rebuiltCanonical)
     const hashMatch = rebuiltHash === labResult.hash
 
-    const signatureValid = verifySignature(
-      lab.publicKey,
-      labResult.hash,
-      labResult.signature
-    )
+    let signatureValid = false
+    if (hashMatch) {
+      signatureValid = verifySignature(
+        lab.publicKey,
+        labResult.canonicalData,
+        labResult.signature
+      )
+    }
 
-    res.json({ hashMatch, signatureValid })
+    res.json({
+      hashMatch,
+      signatureValid,
+      storedHash: labResult.hash,
+      computedHash: rebuiltHash,
+      canonicalData: labResult.canonicalData
+    })
 
   } catch (err) {
     console.error(err)
@@ -267,6 +338,7 @@ export const validateLab = async (req, res) => {
 }
 
 
+// ================= MANUFACTURER =================
 export const validateManufacturer = async (req, res) => {
   try {
     const { batchCode } = req.body
@@ -280,7 +352,6 @@ export const validateManufacturer = async (req, res) => {
       return res.status(404).json({ error: "Batch not found" })
     }
 
-    // ✅ Rebuild from actual DB field values + stored canonicalTimestamp
     const rebuiltCanonical = buildManufacturingCanonical({
       batchId:              batch.id,
       batchName:            batch.batchName,
@@ -289,19 +360,28 @@ export const validateManufacturer = async (req, res) => {
       herbUsedQuantity:     String(batch.herbUsedQuantity),
       finalProductQuantity: String(batch.finalProductQuantity),
       expiryDate:           new Date(batch.expiryDate).toISOString(),
-      timestamp:            batch.canonicalTimestamp  // ✅ not createdAt
+      timestamp:            batch.canonicalTimestamp
     })
 
     const rebuiltHash = generateHash(rebuiltCanonical)
     const hashMatch = rebuiltHash === batch.hash
 
-    const signatureValid = verifySignature(
-      batch.manufacturer.publicKey,
-      batch.hash,
-      batch.signature
-    )
+    let signatureValid = false
+    if (hashMatch) {
+      signatureValid = verifySignature(
+        batch.manufacturer.publicKey,
+        batch.canonicalData,
+        batch.signature
+      )
+    }
 
-    res.json({ hashMatch, signatureValid })
+    res.json({
+      hashMatch,
+      signatureValid,
+      storedHash: batch.hash,
+      computedHash: rebuiltHash,
+      canonicalData: batch.canonicalData
+    })
 
   } catch (err) {
     console.error(err)
@@ -310,6 +390,7 @@ export const validateManufacturer = async (req, res) => {
 }
 
 
+// ================= TRACE =================
 export const getBatchTrace = async (req, res) => {
   try {
     const { batchCode } = req.params
@@ -334,6 +415,32 @@ export const getBatchTrace = async (req, res) => {
     }
 
     res.json(batch)
+
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "Server error" })
+  }
+}
+
+export const getTraceByCollection = async (req, res) => {
+  try {
+    const { collectionId } = req.params
+
+    const collection = await prisma.collection.findUnique({
+      where: { id: collectionId },
+      include: {
+        farmer: true,
+        labResults: {
+          include: { lab: true }
+        }
+      }
+    })
+
+    if (!collection) {
+      return res.status(404).json({ error: "Collection not found" })
+    }
+
+    res.json(collection)
 
   } catch (err) {
     console.error(err)

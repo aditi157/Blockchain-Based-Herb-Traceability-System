@@ -17,7 +17,7 @@ const VerifyView = ({ record, onClose }) => {
           <div className="trace-card">
             <h3>Collection Details</h3>
             <p><strong>Herb:</strong> {record.collection.herbName}</p>
-            <p><strong>Quantity:</strong> {record.collection.quantity} kg</p>
+            <p><strong>Quantity:</strong> {record.collection.quantity} g</p>
             <p><strong>Farmer:</strong> {record.collection.farmer?.orgCode}</p>
             <p><strong>Location:</strong> {record.collection.location}</p>
           </div>

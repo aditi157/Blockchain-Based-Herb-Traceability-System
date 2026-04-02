@@ -54,6 +54,7 @@ const MyCollections = () => {
             <th>Status</th> {/* ✅ NEW */}
             <th>Location</th>
             <th>Created At</th>
+            <th>Collection ID</th>
           </tr>
         </thead>
 
@@ -65,7 +66,7 @@ const MyCollections = () => {
               style={{ cursor: "pointer" }}
             >
               <td>{c.herbName}</td>
-              <td>{c.quantity} kg</td>
+              <td>{c.quantity} g</td>
               <td>{c.assignedLabId || "—"}</td>
 
               {/* ✅ STATUS COLUMN */}
@@ -83,6 +84,7 @@ const MyCollections = () => {
 
               <td>{c.location || "—"}</td>
               <td>{new Date(c.createdAt).toLocaleString()}</td>
+              <td>{c.id}</td>
             </tr>
           ))}
         </tbody>
@@ -98,7 +100,7 @@ const MyCollections = () => {
               <h3>Basic Information</h3>
               <ul>
                 <li><strong>Herb:</strong> {selected.herbName}</li>
-                <li><strong>Quantity:</strong> {selected.quantity} kg</li>
+                <li><strong>Quantity:</strong> {selected.quantity} g</li>
                 <li><strong>Assigned Lab:</strong> {selected.assignedLabId || "—"}</li>
                 <li><strong>Status:</strong> {getStatus(selected)}</li>
                 <li><strong>Location:</strong> {selected.location || "—"}</li>

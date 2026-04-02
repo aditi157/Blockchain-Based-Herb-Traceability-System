@@ -105,7 +105,7 @@ const ManufacturingRecords = () => {
 
               <div className="info-block">
                 <label>Original Quantity</label>
-                <span>{selectedBatch.labResult.collection.quantity} kg</span>
+                <span>{selectedBatch.labResult.collection.quantity} g</span>
               </div>
 
               <div className="info-block">

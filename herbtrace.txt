@@ -210,12 +210,11 @@ export const login = async (req, res) => {
 
 herbtrace/back/src/controllers/collection.controller.js:
 
-
 import crypto from "crypto"
 import prisma from "../config/db.js"
 import {
   generateHash,
-  signHash,
+  signData,
   verifySignature,
   buildCollectionCanonical
 } from "../utils/crypto.utils.js"
@@ -231,6 +230,8 @@ export const createCollection = async (req, res) => {
     const farmer = await prisma.organization.findUnique({
       where: { id: farmerId }
     })
+
+    
 
     if (!farmer) {
       return res.status(404).json({ error: "Farmer not found" })
@@ -252,7 +253,9 @@ export const createCollection = async (req, res) => {
     })
 
     const hash = generateHash(canonicalData)
-    const signature = signHash(farmer.privateKey, hash)
+    //const signature = signHash(farmer.privateKey, hash)
+    const signature = signData(farmer.privateKey, canonicalData)
+
 
     const collection = await prisma.collection.create({
       data: {
@@ -271,6 +274,19 @@ export const createCollection = async (req, res) => {
 
     res.status(201).json(collection)
 
+    console.log("\n===== SIGNING DEBUG =====")
+
+console.log("Canonical Data (SIGNED):")
+console.log(canonicalData)
+
+console.log("\nGenerated Hash:")
+console.log(hash)
+
+console.log("\nSignature Created:")
+console.log(signature)
+
+console.log("========================\n")
+
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: "Server error" })
@@ -281,9 +297,12 @@ export const createCollection = async (req, res) => {
 export const getMyCollections = async (req, res) => {
   try {
     const collections = await prisma.collection.findMany({
-      where: { farmerId: req.user.id },
-      orderBy: { createdAt: "desc" }
-    })
+  where: { farmerId: req.user.id },
+  include: {
+    labResults: true   // 🔥 ADD THIS
+  },
+  orderBy: { createdAt: "desc" }
+})
     res.json(collections)
   } catch (err) {
     console.error(err)
@@ -297,14 +316,18 @@ export const getAssignedCollectionsForLab = async (req, res) => {
     const labCode = req.user.orgCode
 
     const collections = await prisma.collection.findMany({
-      where: { assignedLabId: labCode },
-      include: {
-        farmer: {
-          select: { name: true, orgCode: true }
-        }
-      },
-      orderBy: { createdAt: "desc" }
-    })
+  where: { assignedLabId: labCode },
+  include: {
+    farmer: {
+      select: { 
+        name: true, 
+        orgCode: true,
+        publicKey: true   // 🔥 ADD THIS
+      }
+    }
+  },
+  orderBy: { createdAt: "desc" }
+})
 
     const filtered = await Promise.all(
       collections.map(async (collection) => {
@@ -337,49 +360,36 @@ export const validateFarmerSignature = async (req, res) => {
       return res.status(404).json({ error: "Collection not found" })
     }
 
-    // ✅ Rebuild canonical from actual DB field values + stored canonicalTimestamp.
-    // If herbName (or any other field) was tampered in the DB, the rebuilt canonical
-    // will differ from what was originally signed, and the hash will not match.
     const rebuiltCanonical = buildCollectionCanonical({
       collectionId: collection.id,
-      herbName:     collection.herbName,
-      quantity:     collection.quantity,
-      farmerCode:   collection.farmer.orgCode,
+      herbName: collection.herbName,
+      quantity: collection.quantity,
+      farmerCode: collection.farmer.orgCode,
       assignedLabId: collection.assignedLabId,
-      location:     collection.location,
-      timestamp:    collection.canonicalTimestamp // ✅ exact original string, not createdAt
+      location: collection.location,
+      timestamp: collection.canonicalTimestamp
     })
 
     const rebuiltHash = generateHash(rebuiltCanonical)
 
-    // Step 1 — hash check: does the data in the DB match what was originally committed?
-    if (rebuiltHash !== collection.hash) {
-      return res.json({
-        valid: false,
-        reason: "Hash mismatch — DB data has been tampered"
-      })
-    }
+    const canonicalMatch = rebuiltCanonical === collection.canonicalData
+    const hashMatch = rebuiltHash === collection.hash
 
-    // Step 2 — signature check: was this hash signed by the farmer's private key?
-    // We use collection.canonicalData here because the signature was created from
-    // that exact byte sequence. Since rebuiltHash === collection.hash, we know the
-    // data is intact, so verifying against the stored hash is valid.
     const signatureValid = verifySignature(
       collection.farmer.publicKey,
-      collection.hash,
+      rebuiltCanonical,
       collection.signature
     )
 
-    if (!signatureValid) {
-      return res.json({
-        valid: false,
-        reason: "Signature invalid — hash may have been forged"
-      })
-    }
-
     return res.json({
-      valid: true,
-      message: "Farmer signature verified successfully"
+      valid: hashMatch && signatureValid,
+      dbValid: hashMatch,
+      signatureValid,
+      canonicalMatch,
+      storedHash: collection.hash,
+      recomputedHash: rebuiltHash,
+      signer: collection.farmer.orgCode,
+      timestamp: collection.canonicalTimestamp
     })
 
   } catch (err) {
@@ -395,7 +405,222 @@ export const validateFarmerSignature = async (req, res) => {
 
 
 
+
+
+
+
+
+
 herbtrace/back/src/controllers/customer.controller.js:
+
+// import prisma from "../config/db.js"
+// import {
+//   generateHash,
+//   verifySignature,
+//   buildCollectionCanonical,
+//   buildLabResultCanonical,
+//   buildManufacturingCanonical
+// } from "../utils/crypto.utils.js"
+
+
+// // ================= FARMER =================
+// export const validateFarmer = async (req, res) => {
+//   try {
+//     const { batchCode } = req.body
+
+//     const batch = await prisma.manufacturingBatch.findUnique({
+//       where: { batchCode },
+//       include: {
+//         labResult: {
+//           include: {
+//             collection: {
+//               include: { farmer: true }
+//             }
+//           }
+//         }
+//       }
+//     })
+
+//     if (!batch) {
+//       return res.status(404).json({ error: "Batch not found" })
+//     }
+
+//     const collection = batch.labResult.collection
+//     const farmer = collection.farmer
+
+//     const rebuiltCanonical = buildCollectionCanonical({
+//       collectionId:  collection.id,
+//       herbName:      collection.herbName,
+//       quantity:      collection.quantity,
+//       farmerCode:    farmer.orgCode,
+//       assignedLabId: collection.assignedLabId,
+//       location:      collection.location,
+//       timestamp:     collection.canonicalTimestamp
+//     })
+
+//     const rebuiltHash = generateHash(rebuiltCanonical)
+//     const hashMatch = rebuiltHash === collection.hash
+
+//     // ✅ FIXED: verify using canonicalData
+//     const signatureValid = verifySignature(
+//       farmer.publicKey,
+//       collection.canonicalData,
+//       collection.signature
+//     )
+
+//     res.json({
+//       hashMatch,
+//       signatureValid,
+//       storedHash: collection.hash,
+//       computedHash: rebuiltHash,
+//       canonicalData: collection.canonicalData
+//     })
+
+//   } catch (err) {
+//     console.error(err)
+//     res.status(500).json({ error: "Server error" })
+//   }
+// }
+
+
+// // ================= LAB =================
+// export const validateLab = async (req, res) => {
+//   try {
+//     const { batchCode } = req.body
+
+//     const batch = await prisma.manufacturingBatch.findUnique({
+//       where: { batchCode },
+//       include: {
+//         labResult: {
+//           include: { lab: true }
+//         }
+//       }
+//     })
+
+//     if (!batch) {
+//       return res.status(404).json({ error: "Batch not found" })
+//     }
+
+//     const labResult = batch.labResult
+//     const lab = labResult.lab
+
+//     const rebuiltCanonical = buildLabResultCanonical({
+//       labResultId:   labResult.id,
+//       collectionId:  labResult.collectionId,
+//       labCode:       lab.orgCode,
+//       result:        labResult.result,
+//       remarks:       labResult.remarks,
+//       assignedMfgId: labResult.assignedMfgId,
+//       timestamp:     labResult.canonicalTimestamp
+//     })
+
+//     const rebuiltHash = generateHash(rebuiltCanonical)
+//     const hashMatch = rebuiltHash === labResult.hash
+
+//     // ✅ FIXED
+//     const signatureValid = verifySignature(
+//       lab.publicKey,
+//       labResult.canonicalData,
+//       labResult.signature
+//     )
+
+//     res.json({
+//       hashMatch,
+//       signatureValid,
+//       storedHash: labResult.hash,
+//       computedHash: rebuiltHash,
+//       canonicalData: labResult.canonicalData
+//     })
+
+//   } catch (err) {
+//     console.error(err)
+//     res.status(500).json({ error: "Server error" })
+//   }
+// }
+
+
+// // ================= MANUFACTURER =================
+// export const validateManufacturer = async (req, res) => {
+//   try {
+//     const { batchCode } = req.body
+
+//     const batch = await prisma.manufacturingBatch.findUnique({
+//       where: { batchCode },
+//       include: { manufacturer: true }
+//     })
+
+//     if (!batch) {
+//       return res.status(404).json({ error: "Batch not found" })
+//     }
+
+//     const rebuiltCanonical = buildManufacturingCanonical({
+//       batchId:              batch.id,
+//       batchName:            batch.batchName,
+//       labResultId:          batch.labResultId,
+//       manufacturerId:       batch.manufacturerId,
+//       herbUsedQuantity:     String(batch.herbUsedQuantity),
+//       finalProductQuantity: String(batch.finalProductQuantity),
+//       expiryDate:           new Date(batch.expiryDate).toISOString(),
+//       timestamp:            batch.canonicalTimestamp
+//     })
+
+//     const rebuiltHash = generateHash(rebuiltCanonical)
+//     const hashMatch = rebuiltHash === batch.hash
+
+//     // ✅ FIXED
+//     const signatureValid = verifySignature(
+//       batch.manufacturer.publicKey,
+//       batch.canonicalData,
+//       batch.signature
+//     )
+
+//     res.json({
+//       hashMatch,
+//       signatureValid,
+//       storedHash: batch.hash,
+//       computedHash: rebuiltHash,
+//       canonicalData: batch.canonicalData
+//     })
+
+//   } catch (err) {
+//     console.error(err)
+//     res.status(500).json({ error: "Server error" })
+//   }
+// }
+
+
+// // ================= TRACE =================
+// export const getBatchTrace = async (req, res) => {
+//   try {
+//     const { batchCode } = req.params
+
+//     const batch = await prisma.manufacturingBatch.findUnique({
+//       where: { batchCode },
+//       include: {
+//         manufacturer: true,
+//         labResult: {
+//           include: {
+//             lab: true,
+//             collection: {
+//               include: { farmer: true }
+//             }
+//           }
+//         }
+//       }
+//     })
+
+//     if (!batch) {
+//       return res.status(404).json({ error: "Batch not found" })
+//     }
+
+//     res.json(batch)
+
+//   } catch (err) {
+//     console.error(err)
+//     res.status(500).json({ error: "Server error" })
+//   }
+// }
+
 
 
 import prisma from "../config/db.js"
@@ -408,6 +633,7 @@ import {
 } from "../utils/crypto.utils.js"
 
 
+// ================= FARMER =================
 export const validateFarmer = async (req, res) => {
   try {
     const { batchCode } = req.body
@@ -432,28 +658,35 @@ export const validateFarmer = async (req, res) => {
     const collection = batch.labResult.collection
     const farmer = collection.farmer
 
-    // ✅ Rebuild from actual DB field values + stored canonicalTimestamp
-    // farmerCode (orgCode) is used — matching what createCollection stored
     const rebuiltCanonical = buildCollectionCanonical({
       collectionId:  collection.id,
       herbName:      collection.herbName,
       quantity:      collection.quantity,
-      farmerCode:    farmer.orgCode,          // ✅ orgCode not UUID
+      farmerCode:    farmer.orgCode,
       assignedLabId: collection.assignedLabId,
       location:      collection.location,
-      timestamp:     collection.canonicalTimestamp  // ✅ not createdAt
+      timestamp:     collection.canonicalTimestamp
     })
 
     const rebuiltHash = generateHash(rebuiltCanonical)
     const hashMatch = rebuiltHash === collection.hash
 
-    const signatureValid = verifySignature(
-      farmer.publicKey,
-      collection.hash,
-      collection.signature
-    )
+    let signatureValid = false
+    if (hashMatch) {
+      signatureValid = verifySignature(
+        farmer.publicKey,
+        collection.canonicalData,
+        collection.signature
+      )
+    }
 
-    res.json({ hashMatch, signatureValid })
+    res.json({
+      hashMatch,
+      signatureValid,
+      storedHash: collection.hash,
+      computedHash: rebuiltHash,
+      canonicalData: collection.canonicalData
+    })
 
   } catch (err) {
     console.error(err)
@@ -462,6 +695,7 @@ export const validateFarmer = async (req, res) => {
 }
 
 
+// ================= LAB =================
 export const validateLab = async (req, res) => {
   try {
     const { batchCode } = req.body
@@ -482,27 +716,35 @@ export const validateLab = async (req, res) => {
     const labResult = batch.labResult
     const lab = labResult.lab
 
-    // ✅ Rebuild from actual DB field values + stored canonicalTimestamp
     const rebuiltCanonical = buildLabResultCanonical({
       labResultId:   labResult.id,
       collectionId:  labResult.collectionId,
-      labCode:       lab.orgCode,             // ✅ orgCode not UUID
+      labCode:       lab.orgCode,
       result:        labResult.result,
       remarks:       labResult.remarks,
       assignedMfgId: labResult.assignedMfgId,
-      timestamp:     labResult.canonicalTimestamp  // ✅ not createdAt
+      timestamp:     labResult.canonicalTimestamp
     })
 
     const rebuiltHash = generateHash(rebuiltCanonical)
     const hashMatch = rebuiltHash === labResult.hash
 
-    const signatureValid = verifySignature(
-      lab.publicKey,
-      labResult.hash,
-      labResult.signature
-    )
+    let signatureValid = false
+    if (hashMatch) {
+      signatureValid = verifySignature(
+        lab.publicKey,
+        labResult.canonicalData,
+        labResult.signature
+      )
+    }
 
-    res.json({ hashMatch, signatureValid })
+    res.json({
+      hashMatch,
+      signatureValid,
+      storedHash: labResult.hash,
+      computedHash: rebuiltHash,
+      canonicalData: labResult.canonicalData
+    })
 
   } catch (err) {
     console.error(err)
@@ -511,6 +753,7 @@ export const validateLab = async (req, res) => {
 }
 
 
+// ================= MANUFACTURER =================
 export const validateManufacturer = async (req, res) => {
   try {
     const { batchCode } = req.body
@@ -524,7 +767,6 @@ export const validateManufacturer = async (req, res) => {
       return res.status(404).json({ error: "Batch not found" })
     }
 
-    // ✅ Rebuild from actual DB field values + stored canonicalTimestamp
     const rebuiltCanonical = buildManufacturingCanonical({
       batchId:              batch.id,
       batchName:            batch.batchName,
@@ -533,19 +775,28 @@ export const validateManufacturer = async (req, res) => {
       herbUsedQuantity:     String(batch.herbUsedQuantity),
       finalProductQuantity: String(batch.finalProductQuantity),
       expiryDate:           new Date(batch.expiryDate).toISOString(),
-      timestamp:            batch.canonicalTimestamp  // ✅ not createdAt
+      timestamp:            batch.canonicalTimestamp
     })
 
     const rebuiltHash = generateHash(rebuiltCanonical)
     const hashMatch = rebuiltHash === batch.hash
 
-    const signatureValid = verifySignature(
-      batch.manufacturer.publicKey,
-      batch.hash,
-      batch.signature
-    )
+    let signatureValid = false
+    if (hashMatch) {
+      signatureValid = verifySignature(
+        batch.manufacturer.publicKey,
+        batch.canonicalData,
+        batch.signature
+      )
+    }
 
-    res.json({ hashMatch, signatureValid })
+    res.json({
+      hashMatch,
+      signatureValid,
+      storedHash: batch.hash,
+      computedHash: rebuiltHash,
+      canonicalData: batch.canonicalData
+    })
 
   } catch (err) {
     console.error(err)
@@ -554,6 +805,7 @@ export const validateManufacturer = async (req, res) => {
 }
 
 
+// ================= TRACE =================
 export const getBatchTrace = async (req, res) => {
   try {
     const { batchCode } = req.params
@@ -595,14 +847,140 @@ export const getBatchTrace = async (req, res) => {
 
 
 
-
 herbtrace/back/src/controllers/lab.controller.js:
+
+// import prisma from "../config/db.js"
+// import crypto from "crypto"
+// import {
+//   generateHash,
+//   signHash
+// } from "../utils/crypto.utils.js"
+
+// // ==========================
+// // CREATE LAB RESULT
+// // ==========================
+// export const createLabResult = async (req, res) => {
+//   try {
+//     const labId = req.user.id
+//     const { collectionId, result, remarks, assignedMfgId } = req.body
+
+//     // 1️⃣ Get collection
+//     const collection = await prisma.collection.findUnique({
+//       where: { id: collectionId }
+//     })
+
+//     if (!collection) {
+//       return res.status(404).json({ error: "Collection not found" })
+//     }
+
+//     // 2️⃣ Resolve manufacturer UUID (if provided)
+//     let manufacturerUUID = null
+
+//     if (assignedMfgId) {
+//       const manufacturer = await prisma.organization.findUnique({
+//         where: { orgCode: assignedMfgId }
+//       })
+
+//       if (!manufacturer) {
+//         return res.status(400).json({ error: "Manufacturer not found" })
+//       }
+
+//       manufacturerUUID = manufacturer.id
+//     }
+
+//     // 3️⃣ Build canonical string (DO NOT CHANGE ORDER EVER)
+//     const canonicalData =
+//       `collectionId:${collectionId}|` +
+//       `labId:${labId}|` +
+//       `result:${result}|` +
+//       `remarks:${remarks || ""}|` +
+//       `assignedMfgId:${manufacturerUUID || ""}`
+
+//     const hash = generateHash(canonicalData)
+
+//     const lab = await prisma.organization.findUnique({
+//       where: { id: labId }
+//     })
+
+//     const signature = signHash(lab.privateKey, hash)
+
+//     // 4️⃣ Store result
+//     const labResult = await prisma.labResult.create({
+//       data: {
+//         collectionId,
+//         result,
+//         remarks,
+//         canonicalData,
+//         hash,
+//         signature,
+//         labId,
+//         assignedMfgId: manufacturerUUID
+//       }
+//     })
+
+//     res.status(201).json(labResult)
+
+//   } catch (err) {
+//     console.error(err)
+//     res.status(500).json({ error: "Server error" })
+//   }
+// }
+
+
+// export const getPastTests = async (req, res) => {
+//   try {
+//     const results = await prisma.labResult.findMany({
+//       where: { labId: req.user.id },
+//       orderBy: { createdAt: "desc" },
+//       include: {
+//         collection: {
+//           include: {
+//             farmer: true
+//           }
+//         },
+//         assignedMfg: true
+//       }
+//     })
+
+//     res.json(results)
+
+//   } catch (err) {
+//     console.error(err)
+//     res.status(500).json({ error: "Server error" })
+//   }
+// }
+
+// export const getResultsForFarmer = async (req, res) => {
+//   try {
+//     const farmerId = req.user.id
+
+//     const results = await prisma.labResult.findMany({
+//       where: {
+//         collection: {
+//           farmerId: farmerId
+//         }
+//       },
+//       include: {
+//         collection: true,
+//         assignedMfg: true,
+//         lab: true
+//       },
+//       orderBy: { createdAt: "desc" }
+//     })
+
+//     res.json(results)
+//   } catch (err) {
+//     console.error(err)
+//     res.status(500).json({ error: "Server error" })
+//   }
+// }
+
 
 import prisma from "../config/db.js"
 import crypto from "crypto"
 import {
   generateHash,
-  signHash,
+  signData,
   verifySignature,
   buildLabResultCanonical
 } from "../utils/crypto.utils.js"
@@ -654,7 +1032,7 @@ export const createLabResult = async (req, res) => {
     const hash = generateHash(canonicalData)
 
     const lab = await prisma.organization.findUnique({ where: { id: labId } })
-    const signature = signHash(lab.privateKey, hash)
+    const signature = signData(lab.privateKey, canonicalData)
 
     const labResult = await prisma.labResult.create({
       data: {
@@ -680,6 +1058,25 @@ export const createLabResult = async (req, res) => {
 }
 
 
+// export const getPastTests = async (req, res) => {
+//   try {
+//     const results = await prisma.labResult.findMany({
+//       where: { labId: req.user.id },
+//       orderBy: { createdAt: "desc" },
+//       include: {
+//         collection: {
+//           include: { farmer: true }
+//         },
+//         assignedMfg: true
+//       }
+//     })
+//     res.json(results)
+//   } catch (err) {
+//     console.error(err)
+//     res.status(500).json({ error: "Server error" })
+//   }
+// }
+
 export const getPastTests = async (req, res) => {
   try {
     const results = await prisma.labResult.findMany({
@@ -687,18 +1084,27 @@ export const getPastTests = async (req, res) => {
       orderBy: { createdAt: "desc" },
       include: {
         collection: {
-          include: { farmer: true }
+          include: {
+            farmer: {
+              select: {
+                name: true,
+                orgCode: true,
+                publicKey: true
+              }
+            }
+          }
         },
         assignedMfg: true
       }
     })
+
     res.json(results)
+
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: "Server error" })
   }
 }
-
 
 export const getResultsForFarmer = async (req, res) => {
   try {
@@ -722,7 +1128,58 @@ export const getResultsForFarmer = async (req, res) => {
     res.status(500).json({ error: "Server error" })
   }
 }
+export const validateLabResult = async (req, res) => {
+  try {
+    const { id } = req.params
 
+    const labResult = await prisma.labResult.findUnique({
+      where: { id },
+      include: {
+        lab: true
+      }
+    })
+
+    if (!labResult) {
+      return res.status(404).json({ error: "Lab result not found" })
+    }
+
+    const rebuiltCanonical = buildLabResultCanonical({
+      labResultId: labResult.id,
+      collectionId: labResult.collectionId,
+      labCode: labResult.lab.orgCode,
+      result: labResult.result,
+      remarks: labResult.remarks,
+      assignedMfgId: labResult.assignedMfgId,
+      timestamp: labResult.canonicalTimestamp
+    })
+
+    const rebuiltHash = generateHash(rebuiltCanonical)
+
+    const canonicalMatch = rebuiltCanonical === labResult.canonicalData
+    const hashMatch = rebuiltHash === labResult.hash
+
+    const signatureValid = verifySignature(
+      labResult.lab.publicKey,
+      rebuiltCanonical,
+      labResult.signature
+    )
+
+    return res.json({
+      valid: hashMatch && signatureValid,
+      dbValid: hashMatch,
+      signatureValid,
+      canonicalMatch,
+      storedHash: labResult.hash,
+      recomputedHash: rebuiltHash,
+      signer: labResult.lab.orgCode,
+      timestamp: labResult.canonicalTimestamp
+    })
+
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "Server error" })
+  }
+}
 
 
 
@@ -738,13 +1195,12 @@ export const getResultsForFarmer = async (req, res) => {
 
 herbtrace/back/src/controllers/manufacturer.controller.js:
 
-
+import { verifySignature, buildManufacturingCanonical } from "../utils/crypto.utils.js"
 import crypto from "crypto"
 import prisma from "../config/db.js"
 import {
   generateHash,
-  signHash,
-  buildManufacturingCanonical
+  signData,
 } from "../utils/crypto.utils.js"
 
 
@@ -762,11 +1218,34 @@ export const getApprovedResults = async (req, res) => {
         collection: {
           include: { farmer: true }
         }
-      },
-      orderBy: { createdAt: "desc" }
+      }
     })
 
-    res.json(results)
+    // 🔥 fetch batches separately
+    const enriched = await Promise.all(
+      results.map(async (r) => {
+        const batches = await prisma.manufacturingBatch.findMany({
+          where: { labResultId: r.id }
+        })
+
+        const totalUsed = batches.reduce(
+          (sum, b) => sum + Number(b.herbUsedQuantity || 0),
+          0
+        )
+
+        const original = Number(r.collection?.quantity || 0)
+        const remainingQuantity = original - totalUsed
+
+        return {
+          ...r,
+          remainingQuantity
+        }
+      })
+    )
+
+    const filtered = enriched.filter(r => r.remainingQuantity > 0)
+
+    res.json(filtered)
 
   } catch (err) {
     console.error(err)
@@ -839,7 +1318,7 @@ export const createBatch = async (req, res) => {
     })
 
     const hash = generateHash(canonicalData)
-    const signature = signHash(manufacturer.privateKey, hash)
+    const signature = signData(manufacturer.privateKey, canonicalData)
 
     const batch = await prisma.manufacturingBatch.create({
       data: {
@@ -894,6 +1373,61 @@ export const getMyBatches = async (req, res) => {
   }
 }
 
+
+
+export const validateBatch = async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const batch = await prisma.manufacturingBatch.findUnique({
+      where: { id },
+      include: {
+        manufacturer: true
+      }
+    })
+
+    if (!batch) {
+      return res.status(404).json({ error: "Batch not found" })
+    }
+
+    const rebuiltCanonical = buildManufacturingCanonical({
+      batchId: batch.id,
+      batchName: batch.batchName,
+      labResultId: batch.labResultId,
+      manufacturerId: batch.manufacturerId,
+      herbUsedQuantity: String(batch.herbUsedQuantity),
+      finalProductQuantity: String(batch.finalProductQuantity),
+      expiryDate: new Date(batch.expiryDate).toISOString(),
+      timestamp: batch.canonicalTimestamp
+    })
+
+    const rebuiltHash = generateHash(rebuiltCanonical)
+
+    const canonicalMatch = rebuiltCanonical === batch.canonicalData
+    const hashMatch = rebuiltHash === batch.hash
+
+    const signatureValid = verifySignature(
+      batch.manufacturer.publicKey,
+      rebuiltCanonical,
+      batch.signature
+    )
+
+    return res.json({
+      valid: hashMatch && signatureValid,
+      dbValid: hashMatch,
+      signatureValid,
+      canonicalMatch,
+      storedHash: batch.hash,
+      recomputedHash: rebuiltHash,
+      signer: batch.manufacturer.orgCode,
+      timestamp: batch.canonicalTimestamp
+    })
+
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "Server error" })
+  }
+}
 
 
 
@@ -970,6 +1504,19 @@ export const requireRole = (role) => {
 }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 herbtrace/back/src/routes/auth.routes.js:
 
 import express from "express"
@@ -983,6 +1530,19 @@ router.post("/login", login)
 export default router
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 herbtrace/back/src/routes/collection.routes.js:
 
 import express from "express"
@@ -993,6 +1553,13 @@ import {
 } from "../controllers/collection.controller.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 import { getAssignedCollectionsForLab } from "../controllers/collection.controller.js"
+import {
+  validateFarmer,
+  validateLab,
+  validateManufacturer,
+  getBatchTrace
+} from "../controllers/customer.controller.js"
+
 
 const router = express.Router()
 
@@ -1025,34 +1592,20 @@ router.get(
   validateFarmerSignature
 )
 
-
-export default router
-
-
-herbtrace/back/src/routes/customer.routes.js:
+router.get("/:id/validate", validateFarmerSignature)
 
 
-import express from "express"
-import {
-  getBatchTrace,
-  validateFarmer,
-  validateLab,
-  validateManufacturer
-} from "../controllers/customer.controller.js"
-
-const router = express.Router()
-
+// 🔥 TRACE
 router.get("/batch/:batchCode", getBatchTrace)
 
-// ✅ Three separate validation endpoints — one per supply chain actor
-router.post("/validate/farmer",       validateFarmer)
-router.post("/validate/lab",          validateLab)
-router.post("/validate/manufacturer", validateManufacturer)
+// 🔥 VALIDATION ROUTES (YOU ARE MISSING THESE)
+router.post("/validate-farmer", validateFarmer)
+router.post("/validate-lab", validateLab)
+router.post("/validate-manufacturer", validateManufacturer)
+
+
 
 export default router
-
-
-
 
 
 
@@ -1070,7 +1623,9 @@ import express from "express"
 import { requireAuth, requireRole } from "../middleware/auth.middleware.js"
 import {
   createLabResult,
-  getPastTests, getResultsForFarmer
+  getPastTests, 
+  getResultsForFarmer,
+  validateLabResult 
 } from "../controllers/lab.controller.js"
 
 const router = express.Router()
@@ -1098,7 +1653,22 @@ router.get(
   getResultsForFarmer
 )
 
+router.get("/:id/validate", validateLabResult)
+
 export default router
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1108,7 +1678,8 @@ import express from "express"
 import {
   getApprovedResults,
   createBatch,
-  getMyBatches
+  getMyBatches,
+  validateBatch
 } from "../controllers/manufacturer.controller.js"
 import { requireAuth, requireRole } from "../middleware/auth.js"
 
@@ -1117,172 +1688,16 @@ const router = express.Router()
 router.get("/approved", requireAuth, requireRole("MANUFACTURER"), getApprovedResults)
 router.post("/batch", requireAuth, requireRole("MANUFACTURER"), createBatch)
 router.get("/batches", requireAuth, requireRole("MANUFACTURER"), getMyBatches)
+router.get("/batch/:id/validate", validateBatch)
 
 export default router
 
 
 
-herbtrace/back/src/routes/org.routes.js:
-
-import express from "express";
-import { getOrganizationById } from "../controllers/org.controller.js";
-import { authenticate } from "../middleware/auth.middleware.js";
-
-const router = express.Router();
-
-// Get organization by ID (authenticated users only)
-router.get("/:id", authenticate, getOrganizationById);
-
-export default router;
 
 
 
-herbtrace/back/src/utils/crypto.utils.js:
 
-import crypto from "crypto"
-
-/* ============================
-   SHA256 HASH
-============================ */
-export const generateHash = (data) => {
-  return crypto.createHash("sha256").update(data).digest("hex")
-}
-
-/* ============================
-   SIGN HASH (ECDSA P-256)
-============================ */
-export const signHash = (privateKey, hash) => {
-  const sign = crypto.createSign("SHA256")
-  sign.update(hash)
-  sign.end()
-  return sign.sign(privateKey, "hex")
-}
-
-/* ============================
-   COLLECTION CANONICAL BUILDER
-============================ */
-export const buildCollectionCanonical = ({
-  collectionId,
-  herbName,
-  quantity,
-  farmerCode,
-  assignedLabId,
-  location,
-  timestamp
-}) => {
-  return (
-    `collectionId:${collectionId}|` +
-    `herbName:${herbName}|` +
-    `quantity:${String(quantity)}|` +
-    `farmerCode:${farmerCode}|` +
-    `assignedLabId:${assignedLabId || ""}|` +
-    `location:${location || ""}|` +
-    `timestamp:${timestamp}`
-  )
-}
-
-/* ============================
-   LAB RESULT CANONICAL BUILDER
-============================ */
-export const buildLabResultCanonical = ({
-  labResultId,
-  collectionId,
-  labCode,
-  result,
-  remarks,
-  assignedMfgId,
-  timestamp
-}) => {
-  return (
-    `labResultId:${labResultId}|` +
-    `collectionId:${collectionId}|` +
-    `labCode:${labCode}|` +
-    `result:${result}|` +
-    `remarks:${remarks || ""}|` +
-    `assignedMfgId:${assignedMfgId || ""}|` +
-    `timestamp:${timestamp}`
-  )
-}
-
-// Canonical builder for Manufacturing Batch
-export const buildManufacturingCanonical = ({
-  batchId,
-  batchName,
-  labResultId,
-  manufacturerId,
-  herbUsedQuantity,
-  finalProductQuantity,
-  expiryDate,
-  timestamp
-}) => {
-  return (
-    `batchId:${batchId}|` +
-    `batchName:${batchName}|` +
-    `labResultId:${labResultId}|` +
-    `manufacturerId:${manufacturerId}|` +
-    `herbUsedQuantity:${herbUsedQuantity}|` +
-    `finalProductQuantity:${finalProductQuantity}|` +
-    `expiryDate:${expiryDate}|` +
-    `timestamp:${timestamp}`
-  )
-}
-
-export const verifySignature = (publicKey, hash, signature) => {
-  const verify = crypto.createVerify("SHA256")
-  verify.update(hash)
-  verify.end()
-  return verify.verify(publicKey, signature, "hex")
-}
-
-
-
-herbtrace/back/src/app.js:
-
-import express from "express"
-import cors from "cors"
-import authRoutes from "./routes/auth.routes.js"
-import collectionRoutes from "./routes/collection.routes.js"
-import labRoutes from "./routes/lab.routes.js"
-import manufacturerRoutes from "./routes/manufacturer.routes.js"
-import customerRoutes from "./routes/customer.routes.js"
-
-
-const app = express()
-
-app.use(cors({
-  origin: "http://localhost:5173",
-  credentials: true
-}))
-
-app.use(express.json())
-
-// Routes MUST come after app initialization
-app.use("/api/collections", collectionRoutes)
-app.use("/api/lab", labRoutes)
-app.use("/api/auth", authRoutes)
-app.use("/api/manufacturer", manufacturerRoutes)
-app.use("/api/customer", customerRoutes)
-
-
-// Health check
-app.get("/health", (req, res) => {
-  res.json({ status: "Backend running" })
-})
-
-export default app
-
-
-
-herbtrace/back/src/server.js:
-
-import "dotenv/config"
-import app from "./app.js"
-
-const PORT = process.env.PORT || 5000
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`)
-})
 
 
 
@@ -3239,7 +3654,6 @@ export default RegisterPage
 
 herbtrace/front/src/dashboards/consumer/ConsumerDashboard.jsx:
 
-
 import { useState } from "react"
 import Sidebar from "../../components/Sidebar"
 import SavedRecords from "./SavedRecords"
@@ -3308,18 +3722,17 @@ const CustomerDashboard = () => {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // FRONTEND TRANSIT VALIDATION
-  // These rebuild the canonical from the fields received in the API
-  // response and recompute the hash. If anything was altered in
-  // transit between the server and this browser, the hash won't match.
-  // The backend DB validation (via POST /validate/*) checks DB integrity.
-  // Both checks together give full coverage.
-  // ─────────────────────────────────────────────────────────────
+  // ✅ FIXED VARIABLE MAPPING
+  const batch = data
+  const lab = data?.labResult
+  const collection = lab?.collection
+  const farmer = collection?.farmer
+  const manufacturer = data?.manufacturer
+
+  // ================= FRONTEND VALIDATION =================
 
   const validateFarmerFrontend = async () => {
-    const collection = data.labResult.collection
-    const farmer = collection.farmer
+    if (!collection || !farmer) return { hashMatch: false, signatureValid: false }
 
     const canonical = buildCollectionCanonical({
       collectionId:  collection.id,
@@ -3336,105 +3749,117 @@ const CustomerDashboard = () => {
 
     let signatureValid = false
     if (hashMatch) {
-      signatureValid = await verifySignature(farmer.publicKey, collection.hash, collection.signature)
+      signatureValid = await verifySignature(farmer.publicKey, canonical, collection.signature)
     }
 
-    return { hashMatch, signatureValid, actor: "Farmer" }
+    return { hashMatch, signatureValid }
   }
 
   const validateLabFrontend = async () => {
-    const labResult = data.labResult
-    const lab = labResult.lab
+    if (!lab) return { hashMatch: false, signatureValid: false }
 
     const canonical = buildLabResultCanonical({
-      labResultId:   labResult.id,
-      collectionId:  labResult.collectionId,
-      labCode:       lab.orgCode,
-      result:        labResult.result,
-      remarks:       labResult.remarks,
-      assignedMfgId: labResult.assignedMfgId,
-      timestamp:     labResult.canonicalTimestamp
+      labResultId:   lab.id,
+      collectionId:  lab.collectionId,
+      labCode:       lab.lab?.orgCode,
+      result:        lab.result,
+      remarks:       lab.remarks,
+      assignedMfgId: lab.assignedMfgId,
+      timestamp:     lab.canonicalTimestamp
     })
 
     const computedHash = await generateHash(canonical)
-    const hashMatch = computedHash === labResult.hash
+    const hashMatch = computedHash === lab.hash
 
     let signatureValid = false
     if (hashMatch) {
-      signatureValid = await verifySignature(lab.publicKey, labResult.hash, labResult.signature)
+      signatureValid = await verifySignature(lab.lab?.publicKey, canonical, lab.signature)
     }
 
-    return { hashMatch, signatureValid, actor: "Lab" }
+    return { hashMatch, signatureValid }
   }
 
   const validateManufacturerFrontend = async () => {
-    const mfg = data.manufacturer
+    if (!batch || !manufacturer) return { hashMatch: false, signatureValid: false }
 
     const canonical = buildManufacturingCanonical({
-      batchId:              data.id,
-      batchName:            data.batchName,
-      labResultId:          data.labResultId,
-      manufacturerId:       data.manufacturerId,
-      herbUsedQuantity:     String(data.herbUsedQuantity),
-      finalProductQuantity: String(data.finalProductQuantity),
-      expiryDate:           new Date(data.expiryDate).toISOString(),
-      timestamp:            data.canonicalTimestamp
+      batchId:              batch.id,
+      batchName:            batch.batchName,
+      labResultId:          batch.labResultId,
+      manufacturerId:       batch.manufacturerId,
+      herbUsedQuantity:     String(batch.herbUsedQuantity),
+      finalProductQuantity: String(batch.finalProductQuantity),
+      expiryDate:           new Date(batch.expiryDate).toISOString(),
+      timestamp:            batch.canonicalTimestamp
     })
 
     const computedHash = await generateHash(canonical)
-    const hashMatch = computedHash === data.hash
+    const hashMatch = computedHash === batch.hash
 
     let signatureValid = false
     if (hashMatch) {
-      signatureValid = await verifySignature(mfg.publicKey, data.hash, data.signature)
+      signatureValid = await verifySignature(manufacturer.publicKey, canonical, batch.signature)
     }
 
-    return { hashMatch, signatureValid, actor: "Manufacturer" }
+    return { hashMatch, signatureValid }
   }
 
-  // Run both DB check (backend) and transit check (frontend) together
+  // ================= VALIDATION =================
+
   const runValidation = async (actor) => {
     setValidating(actor)
+
     try {
-      // Backend: validates against DB fields — catches DB tampering
       const endpointMap = {
-        Farmer:       "farmer",
-        Lab:          "lab",
-        Manufacturer: "manufacturer"
+        Farmer: "validate-farmer",
+        Lab: "validate-lab",
+        Manufacturer: "validate-manufacturer"
       }
 
       const dbRes = await fetch(
-        `http://localhost:5000/api/customer/validate/${endpointMap[actor]}`,
+        `http://localhost:5000/api/customer/${endpointMap[actor]}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ batchCode: data.batchCode })
+          body: JSON.stringify({ batchCode })
         }
       )
-      const dbResult = await dbRes.json()
 
-      // Frontend: validates against received API fields — catches transit tampering
-      const frontendValidatorMap = {
-        Farmer:       validateFarmerFrontend,
-        Lab:          validateLabFrontend,
+      let dbResult = {}
+
+const contentType = dbRes.headers.get("content-type")
+
+if (contentType && contentType.includes("application/json")) {
+  dbResult = await dbRes.json()
+} else {
+  const text = await dbRes.text()
+
+  console.error("❌ Non-JSON response:", text)
+
+  dbResult = {
+    error: "Server did not return JSON",
+    raw: text
+  }
+}
+
+      const frontendMap = {
+        Farmer: validateFarmerFrontend,
+        Lab: validateLabFrontend,
         Manufacturer: validateManufacturerFrontend
       }
-      const transitResult = await frontendValidatorMap[actor]()
 
-      setValidationResults((prev) => ({
+      const transitResult = await frontendMap[actor]()
+
+      setValidationResults(prev => ({
         ...prev,
         [actor]: {
-          db:      { hashMatch: dbResult.hashMatch,      signatureValid: dbResult.signatureValid },
-          transit: { hashMatch: transitResult.hashMatch, signatureValid: transitResult.signatureValid }
+          db: dbResult,
+          transit: transitResult
         }
       }))
 
     } catch (err) {
       console.error(err)
-      setValidationResults((prev) => ({
-        ...prev,
-        [actor]: { error: "Validation failed" }
-      }))
     } finally {
       setValidating("")
     }
@@ -3442,36 +3867,24 @@ const CustomerDashboard = () => {
 
   const ValidationBadge = ({ label, result }) => {
     if (!result) return null
-    if (result.error) return <p style={{ color: "orange" }}>{result.error}</p>
 
-    const dbOk      = result.db?.hashMatch && result.db?.signatureValid
+    const dbOk = result.db?.hashMatch && result.db?.signatureValid
     const transitOk = result.transit?.hashMatch && result.transit?.signatureValid
 
     return (
       <div style={{ marginTop: "10px", fontSize: "13px", background: "#f8f9fa", padding: "10px", borderRadius: "8px" }}>
         <strong>{label}</strong>
-        <div style={{ marginTop: "6px" }}>
-          <span style={{ color: "#555" }}>DB integrity: </span>
-          <span style={{ color: result.db?.hashMatch ? "green" : "red" }}>
-            Hash {result.db?.hashMatch ? "✓" : "✗"}
-          </span>
-          {" · "}
-          <span style={{ color: result.db?.signatureValid ? "green" : "red" }}>
-            Sig {result.db?.signatureValid ? "✓" : "✗"}
-          </span>
-        </div>
+
         <div>
-          <span style={{ color: "#555" }}>Transit integrity: </span>
-          <span style={{ color: result.transit?.hashMatch ? "green" : "red" }}>
-            Hash {result.transit?.hashMatch ? "✓" : "✗"}
-          </span>
-          {" · "}
-          <span style={{ color: result.transit?.signatureValid ? "green" : "red" }}>
-            Sig {result.transit?.signatureValid ? "✓" : "✗"}
-          </span>
+          DB: Hash {result.db?.hashMatch ? "✓" : "✗"} · Sig {result.db?.signatureValid ? "✓" : "✗"}
         </div>
-        <div style={{ marginTop: "4px", fontWeight: "bold", color: dbOk && transitOk ? "green" : "red" }}>
-          {dbOk && transitOk ? "✔ Record Verified" : "✖ Integrity Check Failed"}
+
+        <div>
+          Transit: Hash {result.transit?.hashMatch ? "✓" : "✗"} · Sig {result.transit?.signatureValid ? "✓" : "✗"}
+        </div>
+
+        <div style={{ fontWeight: "bold", color: dbOk && transitOk ? "green" : "red" }}>
+          {dbOk && transitOk ? " Verified" : "Failed"}
         </div>
       </div>
     )
@@ -3479,12 +3892,7 @@ const CustomerDashboard = () => {
 
   return (
     <div className="dashboard-layout">
-      <Sidebar
-        role="Consumer"
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        onLogout={handleLogout}
-      />
+      <Sidebar role="Consumer" activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} />
 
       <div className="dashboard-content">
         {activeTab === "verify" && (
@@ -3494,7 +3902,7 @@ const CustomerDashboard = () => {
             <div className="search-bar">
               <input
                 type="text"
-                placeholder="Enter Batch Code (e.g. BATCH-001)"
+                placeholder="Enter Batch Code"
                 value={batchCode}
                 onChange={(e) => setBatchCode(e.target.value)}
               />
@@ -3509,122 +3917,38 @@ const CustomerDashboard = () => {
               <div className="trace-layout">
 
                 {/* FARMER */}
-                <div className="trace-card">
-                  <h3>Farmer</h3>
-                  <div className="info-block">
-                    <label>Name</label>
-                    <span>{data.labResult.collection.farmer.name}</span>
-                  </div>
-                  <div className="info-block">
-                    <label>Farmer ID</label>
-                    <span>{data.labResult.collection.farmer.orgCode}</span>
-                  </div>
-                  <div className="info-block">
-                    <label>Location</label>
-                    <span>{data.labResult.collection.location}</span>
-                  </div>
-                  <div className="info-block">
-                    <label>Herb</label>
-                    <span>{data.labResult.collection.herbName}</span>
-                  </div>
-                  <div className="info-block">
-                    <label>Quantity</label>
-                    <span>{data.labResult.collection.quantity} kg</span>
-                  </div>
+                <div className="verification-block">
+                  <h3>Farmer Data</h3>
+                  <span>{collection?.herbName}</span>
+                  <span>{collection?.quantity} kg</span>
+                  <span>{collection?.location}</span>
+                  <span>{collection?.canonicalTimestamp}</span>
                 </div>
 
                 {/* LAB */}
-                <div className="trace-card">
-                  <h3>Laboratory</h3>
-                  <div className="info-block">
-                    <label>Lab</label>
-                    <span>{data.labResult.lab.name}</span>
-                  </div>
-                  <div className="info-block">
-                    <label>Lab ID</label>
-                    <span>{data.labResult.lab.orgCode}</span>
-                  </div>
-                  <div className="info-block">
-                    <label>Result</label>
-                    <span className={`pill ${data.labResult.result === "PASS" ? "pass active" : "fail active"}`}>
-                      {data.labResult.result}
-                    </span>
-                  </div>
-                  <div className="info-block">
-                    <label>Remarks</label>
-                    <span>{data.labResult.remarks || "—"}</span>
-                  </div>
+                <div className="verification-block">
+                  <h3>Lab Result</h3>
+                  <span>{lab?.result}</span>
+                  <span>{lab?.remarks}</span>
                 </div>
 
                 {/* MANUFACTURER */}
-                <div className="trace-card">
-                  <h3>Manufacturer</h3>
-                  <div className="info-block">
-                    <label>Name</label>
-                    <span>{data.manufacturer.name}</span>
-                  </div>
-                  <div className="info-block">
-                    <label>Manufacturer ID</label>
-                    <span>{data.manufacturer.orgCode}</span>
-                  </div>
-                  <div className="info-block">
-                    <label>Batch Name</label>
-                    <span>{data.batchName}</span>
-                  </div>
-                  <div className="info-block">
-                    <label>Final Product</label>
-                    <span>{data.finalProductQuantity} g</span>
-                  </div>
-                  <div className="info-block">
-                    <label>Expiry</label>
-                    <span>{new Date(data.expiryDate).toLocaleDateString()}</span>
-                  </div>
+                <div className="verification-block">
+                  <h3>Manufacturing</h3>
+                  <span>{batch?.batchName}</span>
+                  <span>{batch?.expiryDate}</span>
                 </div>
 
                 {/* VALIDATION */}
                 <div className="trace-actions">
-                  <h3>Integrity Verification</h3>
+                  <button onClick={() => runValidation("Farmer")}>Validate Farmer</button>
+                  <ValidationBadge label="Farmer" result={validationResults["Farmer"]} />
 
-                  <div style={{ display: "flex", flexDirection: "column", gap: "12px", width: "100%" }}>
+                  <button onClick={() => runValidation("Lab")}>Validate Lab</button>
+                  <ValidationBadge label="Lab" result={validationResults["Lab"]} />
 
-                    <div>
-                      <button
-                        className="btn-secondary"
-                        onClick={() => runValidation("Farmer")}
-                        disabled={validating === "Farmer"}
-                      >
-                        {validating === "Farmer" ? "Validating..." : "Validate Farmer Records"}
-                      </button>
-                      <ValidationBadge label="Farmer" result={validationResults["Farmer"]} />
-                    </div>
-
-                    <div>
-                      <button
-                        className="btn-secondary"
-                        onClick={() => runValidation("Lab")}
-                        disabled={validating === "Lab"}
-                      >
-                        {validating === "Lab" ? "Validating..." : "Validate Lab Records"}
-                      </button>
-                      <ValidationBadge label="Lab" result={validationResults["Lab"]} />
-                    </div>
-
-                    <div>
-                      <button
-                        className="btn-secondary"
-                        onClick={() => runValidation("Manufacturer")}
-                        disabled={validating === "Manufacturer"}
-                      >
-                        {validating === "Manufacturer" ? "Validating..." : "Validate Manufacturer Records"}
-                      </button>
-                      <ValidationBadge label="Manufacturer" result={validationResults["Manufacturer"]} />
-                    </div>
-
-                    <button className="btn-secondary" onClick={handleSaveRecord}>
-                      Save Record
-                    </button>
-
-                  </div>
+                  <button onClick={() => runValidation("Manufacturer")}>Validate Manufacturer</button>
+                  <ValidationBadge label="Manufacturer" result={validationResults["Manufacturer"]} />
                 </div>
 
               </div>
@@ -3641,9 +3965,6 @@ const CustomerDashboard = () => {
 }
 
 export default CustomerDashboard
-
-
-
 
 
 
@@ -3768,6 +4089,16 @@ const VerifyView = ({ record, onClose }) => {
 export default VerifyView
 
 
+
+
+
+
+
+
+
+
+
+
 herbtrace/front/src/dashboards/farmer/FarmerDashboard.jsx:
 import { useState } from "react"
 import Sidebar from "../../components/Sidebar"
@@ -3806,18 +4137,39 @@ function FarmerDashboard() {
 export default FarmerDashboard
 
 
+
+
+
+
+
+
+
+
+
+
+
 herbtrace/front/src/dashboards/farmer/LabResults.jsx:
-import { useEffect, useState } from "react";
+
+import { useEffect, useState } from "react"
+import {
+  generateHash,
+  verifySignature,
+  buildCollectionCanonical,
+  buildLabResultCanonical
+} from "../../utils/crypto"
 
 function LabResults() {
-  const [results, setResults] = useState([]);
-  const [error, setError] = useState("");
+  const [results, setResults] = useState([])
+  const [error, setError] = useState("")
+  const [selected, setSelected] = useState(null)
+  const [validation, setValidation] = useState(null)
+  const [validating, setValidating] = useState(false)
+
+  const token = localStorage.getItem("token")
 
   useEffect(() => {
     const fetchResults = async () => {
       try {
-        const token = localStorage.getItem("token");
-
         const response = await fetch(
           "http://localhost:5000/api/lab/farmer",
           {
@@ -3825,22 +4177,99 @@ function LabResults() {
               Authorization: `Bearer ${token}`,
             },
           }
-        );
+        )
 
-        const data = await response.json();
+        const data = await response.json()
 
         if (response.ok) {
-          setResults(data);
+          setResults(data)
         } else {
-          setError(data.message || "Failed to fetch lab results");
+          setError(data.message || "Failed to fetch lab results")
         }
       } catch {
-        setError("Server error");
+        setError("Server error")
       }
-    };
+    }
 
-    fetchResults();
-  }, []);
+    fetchResults()
+  }, [])
+
+  // ✅ VALIDATION FUNCTION (FULL SYSTEM)
+  const handleValidate = async () => {
+  const r = selected
+
+  if (!r || !r.lab || !r.lab.publicKey) {
+    console.error("Missing lab data:", r)
+    return
+  }
+
+  setValidating(true)
+  setValidation(null)
+
+  try {
+    // 🔴 BACKEND VALIDATION (LAB)
+    const dbRes = await fetch(
+      `http://localhost:5000/api/lab/${r.id}/validate`,
+      {
+        headers: { Authorization: `Bearer ${token}` }
+      }
+    )
+
+    const dbData = await dbRes.json()
+
+    // 🔵 FRONTEND VALIDATION (LAB RESULT)
+    const canonical = buildLabResultCanonical({
+      labResultId: r.id,
+      collectionId: r.collectionId,
+      labCode: r.lab.orgCode,
+      result: r.result,
+      remarks: r.remarks,
+      assignedMfgId: r.assignedMfgId,
+      timestamp: r.canonicalTimestamp
+    })
+
+    const computedHash = await generateHash(canonical)
+    const hashMatch = computedHash === r.hash
+
+    let signatureValid = false
+    if (hashMatch) {
+      signatureValid = await verifySignature(
+        r.lab.publicKey,
+        canonical,
+        r.signature
+      )
+    }
+
+    const allValid =
+      dbData.valid &&
+      hashMatch &&
+      signatureValid
+
+    setValidation({
+      valid: allValid,
+
+      // backend
+      dbValid: dbData.dbValid,
+      backendSignatureValid: dbData.signatureValid,
+
+      // frontend
+      hashMatch,
+      signatureValid,
+
+      // data
+      storedHash: r.hash,
+      computedHash,
+      signer: r.lab.orgCode,
+      timestamp: r.canonicalTimestamp
+    })
+
+  } catch (err) {
+    console.error(err)
+    setValidation({ valid: false })
+  } finally {
+    setValidating(false)
+  }
+}
 
   return (
     <div className="records-section">
@@ -3854,6 +4283,7 @@ function LabResults() {
             <th>Collection ID</th>
             <th>Result</th>
             <th>Status</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -3862,18 +4292,182 @@ function LabResults() {
               <td>{r.collectionId}</td>
               <td>{r.result}</td>
               <td>{r.status}</td>
+              <td>
+                <button
+                  className="btn-secondary"
+                  onClick={() => {
+                    setSelected(r)
+                    setValidation(null)
+                  }}
+                >
+                  View Details
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      {/* MODAL */}
+      {selected?.collection && (
+        <div className="modal-backdrop" onClick={() => setSelected(null)}>
+          <div
+            className="modal-inspection"
+            onClick={(e) => e.stopPropagation()}
+          >
+
+            {/* LEFT */}
+            <div className="inspection-left">
+              <h3>Collection Details</h3>
+
+              <div className="info-block">
+                <label>Herb</label>
+                <span>{selected.collection.herbName}</span>
+              </div>
+
+              <div className="info-block">
+                <label>Quantity</label>
+                <span>{selected.collection.quantity} kg</span>
+              </div>
+
+              <div className="info-block">
+                <label>Farmer</label>
+                <span>{selected.collection.farmer?.orgCode}</span>
+              </div>
+
+              <div className="info-block">
+                <label>Location</label>
+                <span>{selected.collection.location || "—"}</span>
+              </div>
+
+              <button
+                className="btn-secondary"
+                onClick={handleValidate}
+                disabled={validating}
+              >
+                {validating ? "Validating..." : "Validate Lab Signature"}
+              </button>
+
+              {/* VALIDATION PANEL */}
+              {validation && (
+                <div className={`validation-panel ${validation.valid ? "success" : "fail"}`}>
+
+                  <h4>Verification Report</h4>
+
+                  <div className="validation-row">
+                    <label>Stored Hash</label>
+                    <details>
+                      <summary style={{ cursor: "pointer", color: "#16a34a" }}>
+                        Show Hash
+                      </summary>
+                      <code>{validation.storedHash}</code>
+                    </details>
+                  </div>
+
+                  <div className="validation-row">
+                    <label>Recomputed Hash</label>
+                    <details>
+                      <summary style={{ cursor: "pointer", color: "#16a34a" }}>
+                        Show Hash
+                      </summary>
+                      <code>{validation.computedHash}</code>
+                    </details>
+                  </div>
+
+                  <div className="validation-row">
+                    <label>DB Integrity</label>
+                    <span className={validation.dbValid ? "ok" : "fail"}>
+                      {validation.dbValid ? "VALID " : "INVALID "}
+                    </span>
+                  </div>
+
+                  <div className="validation-row">
+                    <label>Backend Signature</label>
+                    <span className={validation.backendSignatureValid ? "ok" : "fail"}>
+                      {validation.backendSignatureValid ? "VALID " : "INVALID "}
+                    </span>
+                  </div>
+
+                  <div className="validation-row">
+                    <label>Transit Hash</label>
+                    <span className={validation.hashMatch ? "ok" : "fail"}>
+                      {validation.hashMatch ? "MATCH " : "MISMATCH "}
+                    </span>
+                  </div>
+
+                  <div className="validation-row">
+                    <label>Transit Signature</label>
+                    <span className={validation.signatureValid ? "ok" : "fail"}>
+                      {validation.signatureValid ? "VALID " : "INVALID "}
+                    </span>
+                  </div>
+
+                  <div className="validation-row">
+                    <label>Signed By</label>
+                    <span>{validation.signer}</span>
+                  </div>
+
+                  <div className="validation-row">
+                    <label>Timestamp</label>
+                    <span>{validation.timestamp}</span>
+                  </div>
+
+                  <div className="validation-final">
+                    {validation.valid
+                      ? "Record Verified & Untampered"
+                      : "Integrity Compromised"}
+                  </div>
+
+                </div>
+              )}
+
+            </div>
+
+            {/* RIGHT */}
+            <div className="inspection-right">
+              <h3>Lab Result</h3>
+
+              <div className="info-block">
+                <label>Result</label>
+                <span>{selected.result}</span>
+              </div>
+
+              <div className="info-block">
+                <label>Status</label>
+                <span>{selected.status}</span>
+              </div>
+
+              <div className="info-block">
+                <label>Remarks</label>
+                <span>{selected.remarks || "—"}</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
-  );
+  )
 }
 
-export default LabResults;
+export default LabResults
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 herbtrace/front/src/dashboards/farmer/MyCollections.jsx:
+
 import { useEffect, useState } from "react"
 
 const MyCollections = () => {
@@ -3900,6 +4494,17 @@ const MyCollections = () => {
     }
   }
 
+  // ✅ STATUS LOGIC
+  const getStatus = (c) => {
+  if (!c.assignedLabId) return "COLLECTED"
+
+  if (!c.labResults || c.labResults.length === 0) {
+    return "ASSIGNED"
+  }
+
+  return "TESTED"
+}
+
   return (
     <div className="records-section">
       <h2>My Collections</h2>
@@ -3915,19 +4520,37 @@ const MyCollections = () => {
           <tr>
             <th>Herb</th>
             <th>Quantity</th>
-            <th>Farmer ID</th>
             <th>Assigned Lab</th>
+            <th>Status</th> {/* ✅ NEW */}
             <th>Location</th>
             <th>Created At</th>
           </tr>
         </thead>
+
         <tbody>
           {collections.map((c) => (
-            <tr key={c.id} onClick={() => setSelected(c)} style={{ cursor: "pointer" }}>
+            <tr
+              key={c.id}
+              onClick={() => setSelected(c)}
+              style={{ cursor: "pointer" }}
+            >
               <td>{c.herbName}</td>
               <td>{c.quantity} kg</td>
-              <td>{c.farmer?.orgCode || "—"}</td>
               <td>{c.assignedLabId || "—"}</td>
+
+              {/* ✅ STATUS COLUMN */}
+              <td>
+                <span className={`pill ${
+                  getStatus(c) === "TESTED"
+                    ? "pass active"
+                    : getStatus(c) === "ASSIGNED"
+                    ? "pending active"
+                    : "muted"
+                }`}>
+                  {getStatus(c)}
+                </span>
+              </td>
+
               <td>{c.location || "—"}</td>
               <td>{new Date(c.createdAt).toLocaleString()}</td>
             </tr>
@@ -3935,6 +4558,7 @@ const MyCollections = () => {
         </tbody>
       </table>
 
+      {/* MODAL (unchanged) */}
       {selected && (
         <div className="modal-overlay" onClick={() => setSelected(null)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
@@ -3945,27 +4569,12 @@ const MyCollections = () => {
               <ul>
                 <li><strong>Herb:</strong> {selected.herbName}</li>
                 <li><strong>Quantity:</strong> {selected.quantity} kg</li>
-                <li><strong>Farmer ID:</strong> {selected.farmer?.orgCode || "—"}</li>
                 <li><strong>Assigned Lab:</strong> {selected.assignedLabId || "—"}</li>
+                <li><strong>Status:</strong> {getStatus(selected)}</li>
                 <li><strong>Location:</strong> {selected.location || "—"}</li>
                 <li><strong>Created At:</strong> {new Date(selected.createdAt).toLocaleString()}</li>
               </ul>
             </div>
-
-            {/* <div className="modal-section">
-              <h3>Blockchain Integrity</h3>
-              <ul>
-                <li><strong>Hash:</strong></li>
-                <code>{selected.hash}</code>
-                <li style={{ marginTop: "10px" }}><strong>Signature:</strong></li>
-                <code>{selected.signature}</code>
-              </ul>
-            </div>
-
-            <div className="modal-section">
-              <h3>Canonical Data</h3>
-              <code>{selected.canonicalData}</code>
-            </div> */}
 
             <button className="modal-close" onClick={() => setSelected(null)}>
               Close
@@ -3979,7 +4588,22 @@ const MyCollections = () => {
 
 export default MyCollections
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 herbtrace/front/src/dashboards/farmer/NewCollection.jsx:
+
 import { useState, useEffect } from "react"
 
 function NewCollection() {
@@ -4025,7 +4649,7 @@ function NewCollection() {
       body: JSON.stringify({
         herbName,
         quantity: Number(quantity),
-        assignedLabId,
+        assignedLabId: assignedLabId || null,
         location,
         timestamp
       }),
@@ -4069,7 +4693,7 @@ function NewCollection() {
           placeholder="Assigned Lab ID"
           value={assignedLabId}
           onChange={(e) => setAssignedLabId(e.target.value)}
-          required
+
         />
 
         {/* Immutable Timestamp */}
@@ -4095,6 +4719,20 @@ function NewCollection() {
 }
 
 export default NewCollection
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 herbtrace/front/src/dashboards/farmer/ProofAudit.jsx:
@@ -4162,7 +4800,314 @@ function ProofAudit() {
 export default ProofAudit;
 
 
+
+
+
+
+
+
+
 herbtrace/front/src/dashboards/lab/AssignedCollections.jsx:
+
+// import { useEffect, useState } from "react"
+// import LabResultModal from "../../components/LabResultModal"
+
+// const AssignedCollections = () => {
+//   const [collections, setCollections] = useState([])
+//   const [error, setError] = useState("")
+//   const [selectedCollection, setSelectedCollection] = useState(null)
+//   const [decision, setDecision] = useState(null)
+//   const [remarks, setRemarks] = useState("")
+//   const [assignedMfg, setAssignedMfg] = useState("")
+// const [validationResult, setValidationResult] = useState(null)
+// const [validating, setValidating] = useState(false)
+
+//   const token = localStorage.getItem("token")
+
+//   const load = async () => {
+//     try {
+//       const res = await fetch("http://localhost:5000/api/collections/assigned", {
+//         headers: { Authorization: `Bearer ${token}` },
+//         cache: "no-store"
+//       })
+//       const data = await res.json()
+//       if (!res.ok) { setError(data.error || "Failed to fetch"); return }
+//       setCollections(data)
+//     } catch (err) {
+//       console.error(err)
+//       setError("Server error")
+//     }
+//   }
+
+//   useEffect(() => { load() }, [])
+
+// const handleValidateFarmer = async () => {
+//   try {
+//     setValidating(true)
+//     setValidationResult(null)
+
+//     const res = await fetch(
+//       `http://localhost:5000/api/collections/${selectedCollection.id}/validate`,
+//       {
+//         headers: {
+//           Authorization: `Bearer ${token}`
+//         }
+//       }
+//     )
+
+//     const data = await res.json()
+
+//     if (!res.ok) {
+//       setValidationResult({
+//         valid: false,
+//         reason: data.error || "Validation failed"
+//       })
+//       return
+//     }
+
+//     setValidationResult(data)
+
+//   } catch (err) {
+//     console.error(err)
+//     setValidationResult({
+//       valid: false,
+//       reason: "Server error"
+//     })
+//   } finally {
+//     setValidating(false)
+//   }
+// }
+
+//   const handleSubmitLabResult = async () => {
+//   try {
+  
+//     const res = await fetch("http://localhost:5000/api/lab/results", {
+//   method: "POST",
+//   headers: {
+//     "Content-Type": "application/json",
+//     Authorization: `Bearer ${token}`
+//   },
+//   body: JSON.stringify({
+//     collectionId: selectedCollection.id,
+//     result: decision,          // PASS or FAIL
+//     remarks,
+//     assignedMfgId: assignedMfg
+//   })
+// })
+
+
+//     const data = await res.json()
+
+//     if (!res.ok) {
+//       alert(data.error || "Failed to submit result")
+//       return
+//     }
+
+//     // Close modal after success
+//     setSelectedCollection(null)
+
+//     // Refresh list
+//     load()
+
+//   } catch (err) {
+//     console.error(err)
+//     alert("Server error")
+//   }
+// }
+
+
+
+//   return (
+//     <div className="records-section">
+//       <h2>Incoming Samples</h2>
+
+//       {error && <p className="error-text">{error}</p>}
+
+//       {collections.length === 0 && !error && (
+//         <p className="muted-text">No collections assigned to your lab yet.</p>
+//       )}
+
+//       <table className="records-table">
+//         <thead>
+//           <tr>
+//             <th>Herb</th>
+//             <th>Quantity</th>
+//             <th>Farmer ID</th>
+//             <th>Assigned Lab</th>
+//             <th>Location</th>
+//             <th>Created At</th>
+//             <th>Action</th>
+//           </tr>
+//         </thead>
+//         <tbody>
+//           {collections.map((c) => (
+//             <tr key={c.id}>
+//               <td>{c.herbName}</td>
+//               <td>{c.quantity} kg</td>
+//               <td>{c.farmer?.orgCode || "—"}</td>
+//               <td>{c.assignedLabId || "—"}</td>
+//               <td>{c.location || "—"}</td>
+//               <td>{new Date(c.createdAt).toLocaleString()}</td>
+//               <td>
+//                 <button
+//   className="btn-secondary"
+//   onClick={() => {
+//     setSelectedCollection(c)
+//     setDecision(null)
+//     setRemarks("")
+//     setAssignedMfg("")
+//   }}
+// >
+
+//                   Add Result
+//                 </button>
+//               </td>
+//             </tr>
+//           ))}
+//         </tbody>
+//       </table>
+
+//       {selectedCollection && (
+//   <div className="modal-backdrop" onClick={() => setSelectedCollection(null)}>
+//     <div
+//       className="modal-inspection"
+//       onClick={(e) => e.stopPropagation()}
+//     >
+
+//       {/* LEFT PANEL */}
+//       <div className="inspection-left">
+//         <h3>Collection Inspection</h3>
+
+//         <div className="info-block">
+//           <label>Collection ID</label>
+//           <span>{selectedCollection.id}</span>
+//         </div>
+
+//         <div className="info-block">
+//           <label>Herb</label>
+//           <span>{selectedCollection.herbName}</span>
+//         </div>
+
+//         <div className="info-block">
+//           <label>Quantity</label>
+//           <span>{selectedCollection.quantity} kg</span>
+//         </div>
+
+//         <div className="info-block">
+//           <label>Farmer</label>
+//           <span>{selectedCollection.farmer?.name}</span>
+//         </div>
+
+//         <div className="info-block">
+//           <label>Farmer ID</label>
+//           <span>{selectedCollection.farmer?.orgCode}</span>
+//         </div>
+
+//         <div className="info-block">
+//           <label>Assigned Lab</label>
+//           <span>{selectedCollection.assignedLabId}</span>
+//         </div>
+
+//         <div className="info-block">
+//           <label>Created At</label>
+//           <span>
+//             {new Date(selectedCollection.createdAt).toLocaleString()}
+//           </span>
+//         </div>
+
+//         <button
+//   className="ghost-btn"
+//   onClick={handleValidateFarmer}
+// >
+//   {validating ? "Validating..." : "Validate Farmer Signature"}
+// </button>
+// {validationResult && (
+//   <div
+//     className={`validation-result ${
+//       validationResult.valid ? "valid" : "invalid"
+//     }`}
+//   >
+//     <div className="validation-icon">
+//       {validationResult.valid ? "" : ""}
+//     </div>
+
+//     <h2>
+//       {validationResult.valid ? "Record Valid" : "Record Compromised"}
+//     </h2>
+
+//     {!validationResult.valid && (
+//       <p className="validation-message">
+//         {validationResult.reason}
+//       </p>
+//     )}
+//   </div>
+// )}
+
+
+//       </div>
+
+//       {/* RIGHT PANEL */}
+//       <div className="inspection-right">
+
+//         <div className="decision-header">
+//           <h3>Lab Decision</h3>
+//           <button
+//             className="close-btn"
+//             onClick={() => setSelectedCollection(null)}
+//           >
+//             ✕
+//           </button>
+//         </div>
+
+//         <div className="decision-toggle">
+//           <button
+//             className={`pill pass ${decision === "PASS" ? "active" : ""}`}
+//             onClick={() => setDecision("PASS")}
+//           >
+//             PASS
+//           </button>
+
+//           <button
+//             className={`pill fail ${decision === "FAIL" ? "active" : ""}`}
+//             onClick={() => setDecision("FAIL")}
+//           >
+//             FAIL
+//           </button>
+//         </div>
+
+//         <textarea
+//           placeholder="Remarks (optional)"
+//           value={remarks}
+//           onChange={(e) => setRemarks(e.target.value)}
+//         />
+
+//         <input
+//           type="text"
+//           placeholder="Assign Manufacturer ID (optional)"
+//           value={assignedMfg}
+//           onChange={(e) => setAssignedMfg(e.target.value)}
+//         />
+
+//         <button
+//           className="submit-btn"
+//           disabled={!decision}
+//           onClick={handleSubmitLabResult}
+//         >
+//           Submit Lab Result
+//         </button>
+
+//       </div>
+//     </div>
+//   </div>
+// )}
+
+//     </div>
+//   )
+// }
+
+// export default AssignedCollections
+
+
 
 import { useEffect, useState } from "react"
 import {
@@ -4231,7 +5176,7 @@ const AssignedCollections = () => {
 
       let transitSigValid = false
       if (transitHashMatch) {
-        transitSigValid = await verifySignature(c.farmer.publicKey, c.hash, c.signature)
+        transitSigValid = await verifySignature(c.farmer.publicKey, canonical, c.signature)
       }
 
       const allValid =
@@ -4240,19 +5185,31 @@ const AssignedCollections = () => {
         transitSigValid
 
       setValidationResult({
-        valid: allValid,
-        dbValid: dbData.valid,
-        dbReason: dbData.reason,
-        transitHashMatch,
-        transitSigValid,
-        reason: !dbData.valid
-          ? dbData.reason
-          : !transitHashMatch
-          ? "Hash mismatch in transit — data may have been altered"
-          : !transitSigValid
-          ? "Signature invalid in transit"
-          : null
-      })
+  valid: allValid,
+  dbValid: dbData.valid,
+  dbReason: dbData.reason,
+  transitHashMatch,
+  transitSigValid,
+
+  // ✅ ADD THESE (THIS IS THE FIX)
+  storedHash: c.hash,
+  computedHash,
+  signer: c.farmer.orgCode,
+  timestamp: c.canonicalTimestamp,
+
+  reason: !dbData.valid
+    ? dbData.reason
+    : !transitHashMatch
+    ? "Hash mismatch in transit — data may have been altered"
+    : !transitSigValid
+    ? "Signature invalid in transit"
+    : null
+})
+
+console.log("DB Result:", dbData)
+console.log("Transit Hash Match:", transitHashMatch)
+console.log("Transit Signature Valid:", transitSigValid)
+      
 
     } catch (err) {
       console.error(err)
@@ -4391,25 +5348,70 @@ const AssignedCollections = () => {
               </button>
 
               {validationResult && (
-                <div
-                  className={`validation-result ${validationResult.valid ? "valid" : "invalid"}`}
-                  style={{ marginTop: "12px" }}
-                >
-                  <div className="validation-icon">
-                    {validationResult.valid ? "✔" : "✖"}
-                  </div>
-                  <h2>{validationResult.valid ? "Record Valid" : "Record Compromised"}</h2>
+                <div className={`validation-panel ${validationResult.valid ? "success" : "fail"}`}>
 
-                  <div style={{ fontSize: "12px", marginTop: "8px", textAlign: "left" }}>
-                    <div>DB — Hash: {validationResult.dbValid ? "✓" : "✗"}</div>
-                    <div>Transit — Hash: {validationResult.transitHashMatch ? "✓" : "✗"}</div>
-                    <div>Transit — Sig: {validationResult.transitSigValid ? "✓" : "✗"}</div>
-                  </div>
+  <h4>Verification Report</h4>
 
-                  {!validationResult.valid && (
-                    <p className="validation-message">{validationResult.reason}</p>
-                  )}
-                </div>
+  <div className="validation-row">
+    <label>Stored Hash</label>
+    <details>
+  <summary style={{ cursor: "pointer", color: "#16a34a" }}>
+    Show Hash
+  </summary>
+  <code>{validationResult.storedHash}</code>
+</details>
+  </div>
+
+  <div className="validation-row">
+    <label>Recomputed Hash</label>
+    <details>
+  <summary style={{ cursor: "pointer", color: "#16a34a" }}>
+    Show Hash
+  </summary>
+  <code>{validationResult.computedHash}</code>
+</details>
+  </div>
+
+  <div className="validation-row">
+    <label>DB Integrity</label>
+    <span className={validationResult.dbValid ? "ok" : "fail"}>
+      {validationResult.dbValid ? "VALID " : "INVALID "}
+    </span>
+  </div>
+
+  <div className="validation-row">
+    <label>Transit Hash</label>
+    <span className={validationResult.transitHashMatch ? "ok" : "fail"}>
+      {validationResult.transitHashMatch ? "MATCH " : "MISMATCH "}
+    </span>
+  </div>
+
+  <div className="validation-row">
+    <label>Transit Signature</label>
+    <span className={validationResult.transitSigValid ? "ok" : "fail"}>
+      {validationResult.transitSigValid ? "VALID " : "INVALID "}
+    </span>
+  </div>
+
+  <div className="validation-row">
+    <label>Signed By</label>
+    <span>{validationResult.signer}</span>
+  </div>
+
+  <div className="validation-row">
+    <label>Timestamp</label>
+    <span>{validationResult.timestamp}</span>
+  </div>
+
+  <div className="validation-final">
+    {validationResult.valid
+      ? "Record Verified & Untampered"
+      : "Integrity Compromised"}
+  </div>
+
+  
+
+</div>
               )}
             </div>
 
@@ -4477,6 +5479,7 @@ export default AssignedCollections
 
 
 
+
 herbtrace/front/src/dashboards/lab/LabDashboard.jsx:
 import React, { useState } from "react"
 import Sidebar from "../../components/Sidebar"
@@ -4524,13 +5527,31 @@ const LabDashboard = () => {
 export default LabDashboard
 
 
+
+
+
+
+
+
+
+
+
+
 herbtrace/front/src/dashboards/lab/PastTests.jsx:
+
 import { useEffect, useState } from "react"
+import {
+  generateHash,
+  verifySignature,
+  buildCollectionCanonical
+} from "../../utils/crypto"
 
 const PastTests = () => {
   const [results, setResults] = useState([])
   const [selected, setSelected] = useState(null)
   const [error, setError] = useState("")
+  const [validation, setValidation] = useState(null)
+  const [validating, setValidating] = useState(false)
 
   const token = localStorage.getItem("token")
 
@@ -4549,7 +5570,6 @@ const PastTests = () => {
       }
 
       setResults(data)
-
     } catch (err) {
       console.error(err)
       setError("Server error")
@@ -4559,6 +5579,90 @@ const PastTests = () => {
   useEffect(() => {
     load()
   }, [])
+
+ const handleValidateFarmer = async () => {
+  const c = selected?.collection
+
+  if (!c || !c.farmer || !c.farmer.publicKey) {
+    console.error("Missing validation data:", selected)
+    return
+  }
+
+  setValidating(true)
+  setValidation(null)
+
+  try {
+    // 🔴 BACKEND VALIDATION (DB integrity)
+    const dbRes = await fetch(
+      `http://localhost:5000/api/collections/${c.id}/validate`,
+      {
+        headers: { Authorization: `Bearer ${token}` }
+      }
+    )
+
+    const dbData = await dbRes.json()
+
+    // 🔵 FRONTEND VALIDATION (transit integrity)
+    const canonical = buildCollectionCanonical({
+      collectionId: c.id,
+      herbName: c.herbName,
+      quantity: c.quantity,
+      farmerCode: c.farmer.orgCode,
+      assignedLabId: c.assignedLabId,
+      location: c.location,
+      timestamp: c.canonicalTimestamp
+    })
+
+    const computedHash = await generateHash(canonical)
+    const hashMatch = computedHash === c.hash
+
+    let signatureValid = false
+    if (hashMatch) {
+      signatureValid = await verifySignature(
+        c.farmer.publicKey,
+        canonical,
+        c.signature
+      )
+    }
+
+    const allValid =
+      dbData.valid &&
+      hashMatch &&
+      signatureValid
+
+    setValidation({
+      valid: allValid,
+
+      // 🔴 BACKEND
+      dbValid: dbData.dbValid,
+      backendSignatureValid: dbData.signatureValid,
+
+      // 🔵 FRONTEND
+      hashMatch,
+      signatureValid,
+
+      // 📊 DATA
+      storedHash: c.hash,
+      computedHash,
+      signer: c.farmer.orgCode,
+      timestamp: c.canonicalTimestamp,
+
+      reason: !dbData.valid
+        ? "Database integrity failed"
+        : !hashMatch
+        ? "Transit hash mismatch"
+        : !signatureValid
+        ? "Signature invalid"
+        : null
+    })
+
+  } catch (err) {
+    console.error("Validation error:", err)
+    setValidation({ valid: false })
+  } finally {
+    setValidating(false)
+  }
+}
 
   return (
     <div className="records-section">
@@ -4594,7 +5698,10 @@ const PastTests = () => {
               <td>
                 <button
                   className="btn-secondary"
-                  onClick={() => setSelected(r)}
+                  onClick={() => {
+                    setSelected(r)
+                    setValidation(null)
+                  }}
                 >
                   View Details
                 </button>
@@ -4604,14 +5711,15 @@ const PastTests = () => {
         </tbody>
       </table>
 
-      {selected && (
+      {/* ✅ SAFE MODAL RENDER */}
+      {selected?.collection && (
         <div className="modal-backdrop" onClick={() => setSelected(null)}>
           <div
             className="modal-inspection"
             onClick={(e) => e.stopPropagation()}
           >
 
-            {/* LEFT PANEL - COLLECTION */}
+            {/* LEFT */}
             <div className="inspection-left">
               <h3>Collection Inspection</h3>
 
@@ -4632,12 +5740,12 @@ const PastTests = () => {
 
               <div className="info-block">
                 <label>Farmer</label>
-                <span>{selected.collection?.farmer?.name}</span>
+                <span>{selected.collection?.farmer?.name || "—"}</span>
               </div>
 
               <div className="info-block">
                 <label>Farmer ID</label>
-                <span>{selected.collection?.farmer?.orgCode}</span>
+                <span>{selected.collection?.farmer?.orgCode || "—"}</span>
               </div>
 
               <div className="info-block">
@@ -4645,14 +5753,89 @@ const PastTests = () => {
                 <span>{selected.collection?.location || "—"}</span>
               </div>
 
-              <button className="ghost-btn">
-                Validate Farmer Signature
+              <button
+                className="ghost-btn"
+                onClick={handleValidateFarmer}
+                disabled={validating}
+              >
+                {validating ? "Validating..." : "Validate Farmer Signature"}
               </button>
+
+              {validation && (
+  <div className={`validation-panel ${validation.valid ? "success" : "fail"}`}>
+
+    <h4>Verification Report</h4>
+
+    <div className="validation-row">
+      <label>Stored Hash</label>
+      <details>
+        <summary style={{ cursor: "pointer", color: "#16a34a" }}>
+          Show Hash
+        </summary>
+        <code>{validation.storedHash}</code>
+      </details>
+    </div>
+
+    <div className="validation-row">
+      <label>Recomputed Hash</label>
+      <details>
+        <summary style={{ cursor: "pointer", color: "#16a34a" }}>
+          Show Hash
+        </summary>
+        <code>{validation.computedHash}</code>
+      </details>
+    </div>
+
+    <div className="validation-row">
+      <label>DB Integrity</label>
+      <span className={validation.dbValid ? "ok" : "fail"}>
+        {validation.dbValid ? "VALID " : "INVALID "}
+      </span>
+    </div>
+
+    <div className="validation-row">
+      <label>Backend Signature</label>
+      <span className={validation.backendSignatureValid ? "ok" : "fail"}>
+        {validation.backendSignatureValid ? "VALID " : "INVALID "}
+      </span>
+    </div>
+
+    <div className="validation-row">
+      <label>Transit Hash</label>
+      <span className={validation.hashMatch ? "ok" : "fail"}>
+        {validation.hashMatch ? "MATCH " : "MISMATCH "}
+      </span>
+    </div>
+
+    <div className="validation-row">
+      <label>Transit Signature</label>
+      <span className={validation.signatureValid ? "ok" : "fail"}>
+        {validation.signatureValid ? "VALID " : "INVALID "}
+      </span>
+    </div>
+
+    <div className="validation-row">
+      <label>Signed By</label>
+      <span>{validation.signer}</span>
+    </div>
+
+    <div className="validation-row">
+      <label>Timestamp</label>
+      <span>{validation.timestamp}</span>
+    </div>
+
+    <div className="validation-final">
+      {validation.valid
+        ? "Record Verified & Untampered"
+        : "Integrity Compromised"}
+    </div>
+
+  </div>
+)}
             </div>
 
-            {/* RIGHT PANEL - LAB RESULT */}
+            {/* RIGHT */}
             <div className="inspection-right">
-
               <div className="decision-header">
                 <h3>Lab Result</h3>
                 <button
@@ -4664,9 +5847,7 @@ const PastTests = () => {
               </div>
 
               <div className="decision-toggle">
-                <span
-                  className={`pill ${selected.result === "PASS" ? "pass active" : "fail active"}`}
-                >
+                <span className={`pill ${selected.result === "PASS" ? "pass active" : "fail active"}`}>
                   {selected.result}
                 </span>
               </div>
@@ -4678,12 +5859,10 @@ const PastTests = () => {
 
               <div className="info-block">
                 <label>Assigned Manufacturer</label>
-                <span>
-                  {selected.assignedMfg?.orgCode || "—"}
-                </span>
+                <span>{selected.assignedMfg?.orgCode || "—"}</span>
               </div>
-
             </div>
+
           </div>
         </div>
       )}
@@ -4694,12 +5873,37 @@ const PastTests = () => {
 export default PastTests
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 herbtrace/front/src/dashboards/manufacturer/AppovedResults.jsx:
+
 import { useEffect, useState } from "react"
+import {
+  generateHash,
+  verifySignature,
+  buildLabResultCanonical
+} from "../../utils/crypto"
 
 const ApprovedResults = () => {
   const [results, setResults] = useState([])
   const [selected, setSelected] = useState(null)
+
+  const [labValidation, setLabValidation] = useState(null)
+  const [validatingLab, setValidatingLab] = useState(false)
 
   const [batchName, setBatchName] = useState("")
   const [herbUsedQuantity, setHerbUsedQuantity] = useState("")
@@ -4717,6 +5921,84 @@ const ApprovedResults = () => {
   }
 
   useEffect(() => { load() }, [])
+
+  // 🔥 RESET STATE WHEN NEW RECORD SELECTED
+  const handleSelect = (r) => {
+    setSelected(r)
+    setLabValidation(null)
+    setBatchName("")
+    setHerbUsedQuantity("")
+    setFinalProductQuantity("")
+    setExpiryDate("")
+  }
+
+  const handleValidateLab = async () => {
+    const r = selected
+
+    if (!r?.lab?.publicKey) {
+      console.error("Missing lab data", r)
+      return
+    }
+
+    setValidatingLab(true)
+    setLabValidation(null)
+
+    try {
+      const dbRes = await fetch(
+        `http://localhost:5000/api/lab/${r.id}/validate`,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      )
+
+      const dbData = await dbRes.json()
+
+      const canonical = buildLabResultCanonical({
+        labResultId: r.id,
+        collectionId: r.collectionId,
+        labCode: r.lab.orgCode,
+        result: r.result,
+        remarks: r.remarks,
+        assignedMfgId: r.assignedMfgId,
+        timestamp: r.canonicalTimestamp
+      })
+
+      const computedHash = await generateHash(canonical)
+      const hashMatch = computedHash === r.hash
+
+      let signatureValid = false
+      if (hashMatch) {
+        signatureValid = await verifySignature(
+          r.lab.publicKey,
+          canonical,
+          r.signature
+        )
+      }
+
+      const allValid =
+        dbData.valid &&
+        hashMatch &&
+        signatureValid
+
+      setLabValidation({
+        valid: allValid,
+        dbValid: dbData.dbValid,
+        backendSignatureValid: dbData.signatureValid,
+        hashMatch,
+        signatureValid,
+        storedHash: r.hash,
+        computedHash,
+        signer: r.lab.orgCode,
+        timestamp: r.canonicalTimestamp
+      })
+
+    } catch (err) {
+      console.error("Lab validation error:", err)
+      setLabValidation({ valid: false })
+    } finally {
+      setValidatingLab(false)
+    }
+  }
 
   const handleCreateBatch = async () => {
     try {
@@ -4742,12 +6024,8 @@ const ApprovedResults = () => {
         return
       }
 
-      // Reset + close
+      // 🔥 reload + close
       setSelected(null)
-      setBatchName("")
-      setHerbUsedQuantity("")
-      setFinalProductQuantity("")
-      setExpiryDate("")
       load()
 
     } catch (err) {
@@ -4767,9 +6045,11 @@ const ApprovedResults = () => {
             <th>Farmer</th>
             <th>Lab</th>
             <th>Decision</th>
+            <th>Remaining</th> {/* ✅ FIXED POSITION */}
             <th>Action</th>
           </tr>
         </thead>
+
         <tbody>
           {results.map(r => (
             <tr key={r.id}>
@@ -4777,10 +6057,14 @@ const ApprovedResults = () => {
               <td>{r.collection?.farmer?.orgCode}</td>
               <td>{r.lab?.orgCode}</td>
               <td>{r.result}</td>
+
+              {/* ✅ CORRECT COLUMN */}
+              <td>{r.remainingQuantity} g</td>
+
               <td>
                 <button
                   className="btn-secondary"
-                  onClick={() => setSelected(r)}
+                  onClick={() => handleSelect(r)}
                 >
                   Create Batch
                 </button>
@@ -4797,7 +6081,7 @@ const ApprovedResults = () => {
             onClick={(e) => e.stopPropagation()}
           >
 
-            {/* LEFT PANEL */}
+            {/* LEFT */}
             <div className="inspection-left">
               <h3>Lab Result Details</h3>
 
@@ -4812,31 +6096,64 @@ const ApprovedResults = () => {
               </div>
 
               <div className="info-block">
-                <label>Farmer ID</label>
-                <span>{selected.collection?.farmer?.orgCode}</span>
+                <label>Remaining Quantity</label>
+                <span>{selected.remainingQuantity} g</span>
               </div>
 
-              <div className="info-block">
-                <label>Lab ID</label>
-                <span>{selected.lab?.orgCode}</span>
-              </div>
-
-              <div className="info-block">
-                <label>Result</label>
-                <span>{selected.result}</span>
-              </div>
-
-              <div className="info-block">
-                <label>Remarks</label>
-                <span>{selected.remarks || "—"}</span>
-              </div>
-
-              <button className="ghost-btn">
-                Validate Lab Signature
+              <button
+                className="ghost-btn"
+                onClick={handleValidateLab}
+                disabled={validatingLab}
+              >
+                {validatingLab ? "Validating..." : "Validate Lab Signature"}
               </button>
+
+              {labValidation && (
+                <div className={`validation-panel ${labValidation.valid ? "success" : "fail"}`}>
+
+                  <h4>Verification Report</h4>
+
+                  <div className="validation-row">
+                    <label>Stored Hash</label>
+                    <code>{labValidation.storedHash}</code>
+                  </div>
+
+                  <div className="validation-row">
+                    <label>Recomputed Hash</label>
+                    <code>{labValidation.computedHash}</code>
+                  </div>
+
+                  <div className="validation-row">
+                    <label>DB Integrity</label>
+                    <span className={labValidation.dbValid ? "ok" : "fail"}>
+                      {labValidation.dbValid ? "VALID " : "INVALID "}
+                    </span>
+                  </div>
+
+                  <div className="validation-row">
+                    <label>Transit Hash</label>
+                    <span className={labValidation.hashMatch ? "ok" : "fail"}>
+                      {labValidation.hashMatch ? "MATCH " : "MISMATCH "}
+                    </span>
+                  </div>
+
+                  <div className="validation-row">
+                    <label>Signature</label>
+                    <span className={labValidation.signatureValid ? "ok" : "fail"}>
+                      {labValidation.signatureValid ? "VALID " : "INVALID "}
+                    </span>
+                  </div>
+
+                  <div className="validation-final">
+                    {labValidation.valid
+                      ? "Record Verified & Untampered"
+                      : "Integrity Compromised"}
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* RIGHT PANEL */}
+            {/* RIGHT */}
             <div className="inspection-right">
 
               <div className="decision-header">
@@ -4863,6 +6180,12 @@ const ApprovedResults = () => {
                 onChange={(e) => setHerbUsedQuantity(e.target.value)}
               />
 
+              {Number(herbUsedQuantity) > selected.remainingQuantity && (
+                <p style={{ color: "red", fontSize: "12px" }}>
+                  Exceeds available quantity
+                </p>
+              )}
+
               <input
                 type="number"
                 placeholder="Final Product Quantity (grams)"
@@ -4881,6 +6204,7 @@ const ApprovedResults = () => {
                 disabled={
                   !batchName ||
                   !herbUsedQuantity ||
+                  Number(herbUsedQuantity) > selected.remainingQuantity ||
                   !finalProductQuantity ||
                   !expiryDate
                 }
@@ -4898,6 +6222,19 @@ const ApprovedResults = () => {
 }
 
 export default ApprovedResults
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 herbtrace/front/src/dashboards/manufacturer/ManufacturerDashboard.jsx:
