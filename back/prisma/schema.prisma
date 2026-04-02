@@ -65,6 +65,7 @@ model LabResult {
 model ManufacturingBatch {
   id                    String    @id @default(uuid())
   batchCode             String    @unique
+  qrCode                String?   @db.Text
   batchName             String?
   herbUsedQuantity      Int?
   finalProductQuantity  Int?

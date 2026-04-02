@@ -24,11 +24,22 @@ const ManufacturingRecords = () => {
 
       setBatches(data)
 
+
     } catch (err) {
       console.error(err)
       setError("Server error")
     }
   }
+
+  const downloadQR = (batch) => {
+  const link = document.createElement("a")
+  link.href = batch.qrCode
+  link.download = `${batch.batchCode}.png`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+  
 
   useEffect(() => { load() }, [])
 
@@ -51,10 +62,12 @@ const ManufacturingRecords = () => {
             <th>Final Qty (g)</th>
             <th>Expiry</th>
             <th>Action</th>
+            <th>QR Code</th>
           </tr>
         </thead>
         <tbody>
           {batches.map((b) => (
+            console.log(b),
             <tr key={b.id}>
               <td>{b.batchCode}</td>
               <td>{b.batchName}</td>
@@ -69,6 +82,20 @@ const ManufacturingRecords = () => {
                   View Details
                 </button>
               </td>
+              <td>
+  {b.qrCode && (
+    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+      <img src={b.qrCode} alt="QR Code" width="100" />
+
+      <button
+        className="btn-secondary"
+        onClick={() => downloadQR(b)}
+      >
+        Download
+      </button>
+    </div>
+  )}
+</td>
             </tr>
           ))}
         </tbody>
@@ -175,6 +202,10 @@ const ManufacturingRecords = () => {
                   {new Date(selectedBatch.createdAt).toLocaleString()}
                 </span>
               </div>
+              <img src={selectedBatch.qrCode} width="200" />
+<button class="btn-secondary" onClick={() => downloadQR(selectedBatch)}>
+  Download QR
+</button>
 
             </div>
           </div>

@@ -8,6 +8,10 @@ import {
   buildLabResultCanonical,
   buildManufacturingCanonical
 } from "../../utils/crypto"
+import jsQR from "jsqr"
+
+
+
 
 const CustomerDashboard = () => {
   const [activeTab, setActiveTab] = useState("verify")
@@ -17,6 +21,41 @@ const CustomerDashboard = () => {
   const [validating, setValidating] = useState("")
   const [validationResults, setValidationResults] = useState({})
   const [tamperTransit, setTamperTransit] = useState(false)
+
+
+  const handleQRUpload = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+
+    const img = new Image()
+    img.src = URL.createObjectURL(file)
+
+    img.onload = () => {
+      const canvas = document.createElement("canvas")
+      const ctx = canvas.getContext("2d")
+
+      canvas.width = img.width
+      canvas.height = img.height
+      ctx.drawImage(img, 0, 0)
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+
+      const code = jsQR(imageData.data, canvas.width, canvas.height)
+
+      if (code) {
+        const scannedBatchCode = code.data
+
+        // ✅ SET STATE
+        setBatchCode(scannedBatchCode)
+
+        // ✅ AUTO FETCH (important)
+        fetchBatchWithCode(scannedBatchCode)
+      } else {
+        alert("QR not detected")
+      }
+    }
+  }
+
 
   const handleLogout = () => {
     localStorage.removeItem("token")
@@ -46,26 +85,53 @@ const CustomerDashboard = () => {
     alert("Record saved successfully!")
   }
 
-  const fetchBatch = async () => {
-    try {
-      setError("")
-      setData(null)
-      setValidationResults({})
+  // const fetchBatch = async () => {
+  //   try {
+  //     setError("")
+  //     setData(null)
+  //     setValidationResults({})
 
-      const res = await fetch(`http://localhost:5000/api/customer/batch/${batchCode}`)
-      const result = await res.json()
+  //     const res = await fetch(`http://localhost:5000/api/customer/batch/${batchCode}`)
+  //     const result = await res.json()
 
-      if (!res.ok) {
-        setError(result.error || "Batch not found")
-        return
-      }
+  //     if (!res.ok) {
+  //       setError(result.error || "Batch not found")
+  //       return
+  //     }
 
-      setData(result)
-    } catch (err) {
-      console.error(err)
-      setError("Server error")
+  //     setData(result)
+  //   } catch (err) {
+  //     console.error(err)
+  //     setError("Server error")
+  //   }
+  // }
+
+
+
+
+const fetchBatchWithCode = async (code) => {
+  try {
+    setError("")
+    setData(null)
+    setValidationResults({})
+
+    const res = await fetch(`http://localhost:5000/api/customer/batch/${code}`)
+    const result = await res.json()
+
+    if (!res.ok) {
+      setError(result.error || "Batch not found")
+      return
     }
+
+    setData(result)
+  } catch (err) {
+    console.error(err)
+    setError("Server error")
   }
+}
+
+const fetchBatch = async () => fetchBatchWithCode(batchCode)
+
 
   // ✅ FIXED VARIABLE MAPPING
   const batch = data
@@ -308,6 +374,7 @@ if (contentType && contentType.includes("application/json")) {
                 value={batchCode}
                 onChange={(e) => setBatchCode(e.target.value)}
               />
+              <input type="file" accept="image/*" onChange={handleQRUpload} />
               <button className="btn-secondary" onClick={fetchBatch}>
                 Verify Batch
               </button>

@@ -2,6 +2,8 @@ import React, { useState } from "react"
 import Sidebar from "../../components/Sidebar"
 import AssignedCollections from "./AssignedCollections"; 
 import PastTests from "./PastTests";
+import Certificates from "./certificates";
+import LabAuditLog from "./LabAuditLog";
 
 const LabDashboard = () => {
   const [activeTab, setActiveTab] = useState("incoming")
@@ -18,9 +20,9 @@ const LabDashboard = () => {
       case "test":
         return <PastTests />
       case "certs":
-        return <h2>Issued Certificates</h2>
+        return <Certificates />
       case "audit":
-        return <h2>Audit Log</h2>
+        return <LabAuditLog />
       default:
         return null
     }

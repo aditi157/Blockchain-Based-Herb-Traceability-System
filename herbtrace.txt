@@ -3,7 +3,6 @@ herbtrace
 
 
 herbtrace/back/prisma/schema.prisma:
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -28,38 +27,40 @@ model Organization {
   labResults         LabResult[]  @relation("LabResults")
   assignedLabResults LabResult[]  @relation("ManufacturerAssignments")
 
-  manufacturedBatches ManufacturingBatch[] // ✅ ADD THIS
+  manufacturedBatches ManufacturingBatch[]
 }
 
 model Collection {
-  id            String   @id @default(uuid())
-  herbName      String
-  quantity      Int
-  location      String?
-  canonicalData String   @db.LongText
-  hash          String
-  signature     String   @db.LongText
-  farmerId      String
-  assignedLabId String?
-  createdAt     DateTime @default(now())
+  id                 String   @id @default(uuid())
+  herbName           String
+  quantity           Int
+  location           String?
+  canonicalData      String   @db.LongText
+  canonicalTimestamp String   // ✅ exact timestamp string used during signing
+  hash               String
+  signature          String   @db.LongText
+  farmerId           String
+  assignedLabId      String?
+  createdAt          DateTime @default(now())
 
   farmer     Organization @relation("FarmerCollections", fields: [farmerId], references: [id])
-  labResults LabResult[] // ✅ relation side
+  labResults LabResult[]
 }
 
 model LabResult {
-  id            String   @id @default(uuid())
-  collectionId  String
-  result        String
-  remarks       String?  @db.LongText
-  canonicalData String   @db.LongText
-  hash          String
-  signature     String   @db.LongText
-  labId         String
-  assignedMfgId String?
-  createdAt     DateTime @default(now())
+  id                 String   @id @default(uuid())
+  collectionId       String
+  result             String
+  remarks            String?  @db.LongText
+  canonicalData      String   @db.LongText
+  canonicalTimestamp String   // ✅ exact timestamp string used during signing
+  hash               String
+  signature          String   @db.LongText
+  labId              String
+  assignedMfgId      String?
+  createdAt          DateTime @default(now())
 
-  collection Collection @relation(fields: [collectionId], references: [id]) // 🔥 THIS LINE
+  collection Collection @relation(fields: [collectionId], references: [id])
 
   lab                  Organization         @relation("LabResults", fields: [labId], references: [id])
   assignedMfg          Organization?        @relation("ManufacturerAssignments", fields: [assignedMfgId], references: [id])
@@ -67,23 +68,24 @@ model LabResult {
 }
 
 model ManufacturingBatch {
-  id                    String   @id @default(uuid())
-  batchCode             String   @unique
-  batchName             String?      // ← temporary optional
-  herbUsedQuantity      Int?         // ← temporary optional
-  finalProductQuantity  Int?         // ← temporary optional
-  expiryDate            DateTime?    // ← temporary optional
-  canonicalData         String   @db.LongText
+  id                    String    @id @default(uuid())
+  batchCode             String    @unique
+  qrCode                String?   @db.Text
+  batchName             String?
+  herbUsedQuantity      Int?
+  finalProductQuantity  Int?
+  expiryDate            DateTime?
+  canonicalData         String    @db.LongText
+  canonicalTimestamp    String    // ✅ exact timestamp string used during signing
   hash                  String
-  signature             String   @db.LongText
+  signature             String    @db.LongText
   manufacturerId        String
   labResultId           String
-  createdAt             DateTime @default(now())
+  createdAt             DateTime  @default(now())
 
   manufacturer Organization @relation(fields: [manufacturerId], references: [id])
   labResult    LabResult    @relation(fields: [labResultId], references: [id])
 }
-
 
 enum Role {
   FARMER
@@ -94,6 +96,17 @@ enum Role {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 herbtrace/back/src/config/db.js:
 
 import { PrismaClient } from "@prisma/client"
@@ -101,6 +114,22 @@ import { PrismaClient } from "@prisma/client"
 const prisma = new PrismaClient()
 
 export default prisma
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -413,216 +442,6 @@ export const validateFarmerSignature = async (req, res) => {
 
 herbtrace/back/src/controllers/customer.controller.js:
 
-// import prisma from "../config/db.js"
-// import {
-//   generateHash,
-//   verifySignature,
-//   buildCollectionCanonical,
-//   buildLabResultCanonical,
-//   buildManufacturingCanonical
-// } from "../utils/crypto.utils.js"
-
-
-// // ================= FARMER =================
-// export const validateFarmer = async (req, res) => {
-//   try {
-//     const { batchCode } = req.body
-
-//     const batch = await prisma.manufacturingBatch.findUnique({
-//       where: { batchCode },
-//       include: {
-//         labResult: {
-//           include: {
-//             collection: {
-//               include: { farmer: true }
-//             }
-//           }
-//         }
-//       }
-//     })
-
-//     if (!batch) {
-//       return res.status(404).json({ error: "Batch not found" })
-//     }
-
-//     const collection = batch.labResult.collection
-//     const farmer = collection.farmer
-
-//     const rebuiltCanonical = buildCollectionCanonical({
-//       collectionId:  collection.id,
-//       herbName:      collection.herbName,
-//       quantity:      collection.quantity,
-//       farmerCode:    farmer.orgCode,
-//       assignedLabId: collection.assignedLabId,
-//       location:      collection.location,
-//       timestamp:     collection.canonicalTimestamp
-//     })
-
-//     const rebuiltHash = generateHash(rebuiltCanonical)
-//     const hashMatch = rebuiltHash === collection.hash
-
-//     // ✅ FIXED: verify using canonicalData
-//     const signatureValid = verifySignature(
-//       farmer.publicKey,
-//       collection.canonicalData,
-//       collection.signature
-//     )
-
-//     res.json({
-//       hashMatch,
-//       signatureValid,
-//       storedHash: collection.hash,
-//       computedHash: rebuiltHash,
-//       canonicalData: collection.canonicalData
-//     })
-
-//   } catch (err) {
-//     console.error(err)
-//     res.status(500).json({ error: "Server error" })
-//   }
-// }
-
-
-// // ================= LAB =================
-// export const validateLab = async (req, res) => {
-//   try {
-//     const { batchCode } = req.body
-
-//     const batch = await prisma.manufacturingBatch.findUnique({
-//       where: { batchCode },
-//       include: {
-//         labResult: {
-//           include: { lab: true }
-//         }
-//       }
-//     })
-
-//     if (!batch) {
-//       return res.status(404).json({ error: "Batch not found" })
-//     }
-
-//     const labResult = batch.labResult
-//     const lab = labResult.lab
-
-//     const rebuiltCanonical = buildLabResultCanonical({
-//       labResultId:   labResult.id,
-//       collectionId:  labResult.collectionId,
-//       labCode:       lab.orgCode,
-//       result:        labResult.result,
-//       remarks:       labResult.remarks,
-//       assignedMfgId: labResult.assignedMfgId,
-//       timestamp:     labResult.canonicalTimestamp
-//     })
-
-//     const rebuiltHash = generateHash(rebuiltCanonical)
-//     const hashMatch = rebuiltHash === labResult.hash
-
-//     // ✅ FIXED
-//     const signatureValid = verifySignature(
-//       lab.publicKey,
-//       labResult.canonicalData,
-//       labResult.signature
-//     )
-
-//     res.json({
-//       hashMatch,
-//       signatureValid,
-//       storedHash: labResult.hash,
-//       computedHash: rebuiltHash,
-//       canonicalData: labResult.canonicalData
-//     })
-
-//   } catch (err) {
-//     console.error(err)
-//     res.status(500).json({ error: "Server error" })
-//   }
-// }
-
-
-// // ================= MANUFACTURER =================
-// export const validateManufacturer = async (req, res) => {
-//   try {
-//     const { batchCode } = req.body
-
-//     const batch = await prisma.manufacturingBatch.findUnique({
-//       where: { batchCode },
-//       include: { manufacturer: true }
-//     })
-
-//     if (!batch) {
-//       return res.status(404).json({ error: "Batch not found" })
-//     }
-
-//     const rebuiltCanonical = buildManufacturingCanonical({
-//       batchId:              batch.id,
-//       batchName:            batch.batchName,
-//       labResultId:          batch.labResultId,
-//       manufacturerId:       batch.manufacturerId,
-//       herbUsedQuantity:     String(batch.herbUsedQuantity),
-//       finalProductQuantity: String(batch.finalProductQuantity),
-//       expiryDate:           new Date(batch.expiryDate).toISOString(),
-//       timestamp:            batch.canonicalTimestamp
-//     })
-
-//     const rebuiltHash = generateHash(rebuiltCanonical)
-//     const hashMatch = rebuiltHash === batch.hash
-
-//     // ✅ FIXED
-//     const signatureValid = verifySignature(
-//       batch.manufacturer.publicKey,
-//       batch.canonicalData,
-//       batch.signature
-//     )
-
-//     res.json({
-//       hashMatch,
-//       signatureValid,
-//       storedHash: batch.hash,
-//       computedHash: rebuiltHash,
-//       canonicalData: batch.canonicalData
-//     })
-
-//   } catch (err) {
-//     console.error(err)
-//     res.status(500).json({ error: "Server error" })
-//   }
-// }
-
-
-// // ================= TRACE =================
-// export const getBatchTrace = async (req, res) => {
-//   try {
-//     const { batchCode } = req.params
-
-//     const batch = await prisma.manufacturingBatch.findUnique({
-//       where: { batchCode },
-//       include: {
-//         manufacturer: true,
-//         labResult: {
-//           include: {
-//             lab: true,
-//             collection: {
-//               include: { farmer: true }
-//             }
-//           }
-//         }
-//       }
-//     })
-
-//     if (!batch) {
-//       return res.status(404).json({ error: "Batch not found" })
-//     }
-
-//     res.json(batch)
-
-//   } catch (err) {
-//     console.error(err)
-//     res.status(500).json({ error: "Server error" })
-//   }
-// }
-
-
-
 import prisma from "../config/db.js"
 import {
   generateHash,
@@ -837,6 +656,32 @@ export const getBatchTrace = async (req, res) => {
   }
 }
 
+export const getTraceByCollection = async (req, res) => {
+  try {
+    const { collectionId } = req.params
+
+    const collection = await prisma.collection.findUnique({
+      where: { id: collectionId },
+      include: {
+        farmer: true,
+        labResults: {
+          include: { lab: true }
+        }
+      }
+    })
+
+    if (!collection) {
+      return res.status(404).json({ error: "Collection not found" })
+    }
+
+    res.json(collection)
+
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "Server error" })
+  }
+}
+
 
 
 
@@ -848,132 +693,6 @@ export const getBatchTrace = async (req, res) => {
 
 
 herbtrace/back/src/controllers/lab.controller.js:
-
-// import prisma from "../config/db.js"
-// import crypto from "crypto"
-// import {
-//   generateHash,
-//   signHash
-// } from "../utils/crypto.utils.js"
-
-// // ==========================
-// // CREATE LAB RESULT
-// // ==========================
-// export const createLabResult = async (req, res) => {
-//   try {
-//     const labId = req.user.id
-//     const { collectionId, result, remarks, assignedMfgId } = req.body
-
-//     // 1️⃣ Get collection
-//     const collection = await prisma.collection.findUnique({
-//       where: { id: collectionId }
-//     })
-
-//     if (!collection) {
-//       return res.status(404).json({ error: "Collection not found" })
-//     }
-
-//     // 2️⃣ Resolve manufacturer UUID (if provided)
-//     let manufacturerUUID = null
-
-//     if (assignedMfgId) {
-//       const manufacturer = await prisma.organization.findUnique({
-//         where: { orgCode: assignedMfgId }
-//       })
-
-//       if (!manufacturer) {
-//         return res.status(400).json({ error: "Manufacturer not found" })
-//       }
-
-//       manufacturerUUID = manufacturer.id
-//     }
-
-//     // 3️⃣ Build canonical string (DO NOT CHANGE ORDER EVER)
-//     const canonicalData =
-//       `collectionId:${collectionId}|` +
-//       `labId:${labId}|` +
-//       `result:${result}|` +
-//       `remarks:${remarks || ""}|` +
-//       `assignedMfgId:${manufacturerUUID || ""}`
-
-//     const hash = generateHash(canonicalData)
-
-//     const lab = await prisma.organization.findUnique({
-//       where: { id: labId }
-//     })
-
-//     const signature = signHash(lab.privateKey, hash)
-
-//     // 4️⃣ Store result
-//     const labResult = await prisma.labResult.create({
-//       data: {
-//         collectionId,
-//         result,
-//         remarks,
-//         canonicalData,
-//         hash,
-//         signature,
-//         labId,
-//         assignedMfgId: manufacturerUUID
-//       }
-//     })
-
-//     res.status(201).json(labResult)
-
-//   } catch (err) {
-//     console.error(err)
-//     res.status(500).json({ error: "Server error" })
-//   }
-// }
-
-
-// export const getPastTests = async (req, res) => {
-//   try {
-//     const results = await prisma.labResult.findMany({
-//       where: { labId: req.user.id },
-//       orderBy: { createdAt: "desc" },
-//       include: {
-//         collection: {
-//           include: {
-//             farmer: true
-//           }
-//         },
-//         assignedMfg: true
-//       }
-//     })
-
-//     res.json(results)
-
-//   } catch (err) {
-//     console.error(err)
-//     res.status(500).json({ error: "Server error" })
-//   }
-// }
-
-// export const getResultsForFarmer = async (req, res) => {
-//   try {
-//     const farmerId = req.user.id
-
-//     const results = await prisma.labResult.findMany({
-//       where: {
-//         collection: {
-//           farmerId: farmerId
-//         }
-//       },
-//       include: {
-//         collection: true,
-//         assignedMfg: true,
-//         lab: true
-//       },
-//       orderBy: { createdAt: "desc" }
-//     })
-
-//     res.json(results)
-//   } catch (err) {
-//     console.error(err)
-//     res.status(500).json({ error: "Server error" })
-//   }
-// }
 
 
 import prisma from "../config/db.js"
@@ -1202,7 +921,7 @@ import {
   generateHash,
   signData,
 } from "../utils/crypto.utils.js"
-
+import QRCode from "qrcode"
 
 export const getApprovedResults = async (req, res) => {
   try {
@@ -1257,7 +976,10 @@ export const getApprovedResults = async (req, res) => {
 export const createBatch = async (req, res) => {
   try {
     const manufacturerId = req.user.id
+    //const batchCode = `BATCH-${String(count + 1).padStart(3, "0")}`
 
+    // ✅ GENERATE QR HERE
+    
     const {
       labResultId,
       batchName,
@@ -1299,7 +1021,9 @@ export const createBatch = async (req, res) => {
 
     const count = await prisma.manufacturingBatch.count()
     const batchCode = `BATCH-${String(count + 1).padStart(3, "0")}`
-
+    
+    const qrData = batchCode
+    const qrCodeBase64 = await QRCode.toDataURL(qrData)
     const batchId = crypto.randomUUID()
 
     // ✅ Generate timestamp — stored separately so verification can rebuild exactly
@@ -1324,6 +1048,7 @@ export const createBatch = async (req, res) => {
       data: {
         id: batchId,
         batchCode,
+        qrCode: qrCodeBase64,
         batchName,
         herbUsedQuantity: Number(herbUsedQuantity),
         finalProductQuantity: Number(finalProductQuantity),
@@ -1428,7 +1153,6 @@ export const validateBatch = async (req, res) => {
     res.status(500).json({ error: "Server error" })
   }
 }
-
 
 
 
@@ -1606,6 +1330,60 @@ router.post("/validate-manufacturer", validateManufacturer)
 
 
 export default router
+
+
+
+
+
+
+
+
+
+
+
+
+
+herbtrace/back/src/routes/customer.routes.js:
+
+
+import express from "express"
+import {
+  getBatchTrace,
+  validateFarmer,
+  validateLab,
+  validateManufacturer
+} from "../controllers/customer.controller.js"
+import { getTraceByCollection } from "../controllers/customer.controller.js"
+
+
+
+
+const router = express.Router()
+
+router.get("/batch/:batchCode", getBatchTrace)
+
+router.post("/validate/farmer",       validateFarmer)
+router.post("/validate/lab",          validateLab)
+router.post("/validate/manufacturer", validateManufacturer)
+
+
+
+router.get("/batch/:batchCode", getBatchTrace)
+
+router.post("/validate-farmer", validateFarmer)
+router.post("/validate-lab", validateLab)
+router.post("/validate-manufacturer", validateManufacturer)
+
+router.get("/collection/:collectionId", getTraceByCollection)
+
+export default router
+
+
+
+
+
+
+
 
 
 
@@ -3664,6 +3442,10 @@ import {
   buildLabResultCanonical,
   buildManufacturingCanonical
 } from "../../utils/crypto"
+import jsQR from "jsqr"
+
+
+
 
 const CustomerDashboard = () => {
   const [activeTab, setActiveTab] = useState("verify")
@@ -3672,6 +3454,42 @@ const CustomerDashboard = () => {
   const [error, setError] = useState("")
   const [validating, setValidating] = useState("")
   const [validationResults, setValidationResults] = useState({})
+  const [tamperTransit, setTamperTransit] = useState(false)
+
+
+  const handleQRUpload = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+
+    const img = new Image()
+    img.src = URL.createObjectURL(file)
+
+    img.onload = () => {
+      const canvas = document.createElement("canvas")
+      const ctx = canvas.getContext("2d")
+
+      canvas.width = img.width
+      canvas.height = img.height
+      ctx.drawImage(img, 0, 0)
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+
+      const code = jsQR(imageData.data, canvas.width, canvas.height)
+
+      if (code) {
+        const scannedBatchCode = code.data
+
+        // ✅ SET STATE
+        setBatchCode(scannedBatchCode)
+
+        // ✅ AUTO FETCH (important)
+        fetchBatchWithCode(scannedBatchCode)
+      } else {
+        alert("QR not detected")
+      }
+    }
+  }
+
 
   const handleLogout = () => {
     localStorage.removeItem("token")
@@ -3701,26 +3519,53 @@ const CustomerDashboard = () => {
     alert("Record saved successfully!")
   }
 
-  const fetchBatch = async () => {
-    try {
-      setError("")
-      setData(null)
-      setValidationResults({})
+  // const fetchBatch = async () => {
+  //   try {
+  //     setError("")
+  //     setData(null)
+  //     setValidationResults({})
 
-      const res = await fetch(`http://localhost:5000/api/customer/batch/${batchCode}`)
-      const result = await res.json()
+  //     const res = await fetch(`http://localhost:5000/api/customer/batch/${batchCode}`)
+  //     const result = await res.json()
 
-      if (!res.ok) {
-        setError(result.error || "Batch not found")
-        return
-      }
+  //     if (!res.ok) {
+  //       setError(result.error || "Batch not found")
+  //       return
+  //     }
 
-      setData(result)
-    } catch (err) {
-      console.error(err)
-      setError("Server error")
+  //     setData(result)
+  //   } catch (err) {
+  //     console.error(err)
+  //     setError("Server error")
+  //   }
+  // }
+
+
+
+
+const fetchBatchWithCode = async (code) => {
+  try {
+    setError("")
+    setData(null)
+    setValidationResults({})
+
+    const res = await fetch(`http://localhost:5000/api/customer/batch/${code}`)
+    const result = await res.json()
+
+    if (!res.ok) {
+      setError(result.error || "Batch not found")
+      return
     }
+
+    setData(result)
+  } catch (err) {
+    console.error(err)
+    setError("Server error")
   }
+}
+
+const fetchBatch = async () => fetchBatchWithCode(batchCode)
+
 
   // ✅ FIXED VARIABLE MAPPING
   const batch = data
@@ -3834,7 +3679,7 @@ if (contentType && contentType.includes("application/json")) {
 } else {
   const text = await dbRes.text()
 
-  console.error("❌ Non-JSON response:", text)
+  console.error("Non-JSON response:", text)
 
   dbResult = {
     error: "Server did not return JSON",
@@ -3865,30 +3710,87 @@ if (contentType && contentType.includes("application/json")) {
     }
   }
 
+  // const ValidationBadge = ({ label, result }) => {
+  //   if (!result) return null
+
+  //   const dbOk = result.db?.hashMatch && result.db?.signatureValid
+  //   const transitOk = result.transit?.hashMatch && result.transit?.signatureValid
+
+  //   return (
+  //     <div style={{ marginTop: "10px", fontSize: "13px", background: "#f8f9fa", padding: "10px", borderRadius: "8px" }}>
+  //       <strong>{label}</strong>
+
+  //       <div>
+  //         DB: Hash {result.db?.hashMatch ? "✓" : "✗"} · Sig {result.db?.signatureValid ? "✓" : "✗"}
+  //       </div>
+
+  //       <div>
+  //         Transit: Hash {result.transit?.hashMatch ? "✓" : "✗"} · Sig {result.transit?.signatureValid ? "✓" : "✗"}
+  //       </div>
+
+  //       <div style={{ fontWeight: "bold", color: dbOk && transitOk ? "green" : "red" }}>
+  //         {dbOk && transitOk ? " Verified" : "Failed"}
+  //       </div>
+  //     </div>
+  //   )
+  // }
+
   const ValidationBadge = ({ label, result }) => {
-    if (!result) return null
+  if (!result) return null
 
-    const dbOk = result.db?.hashMatch && result.db?.signatureValid
-    const transitOk = result.transit?.hashMatch && result.transit?.signatureValid
+  const db = result.db || {}
+  const transit = result.transit || {}
 
-    return (
-      <div style={{ marginTop: "10px", fontSize: "13px", background: "#f8f9fa", padding: "10px", borderRadius: "8px" }}>
-        <strong>{label}</strong>
+  const dbOk = db.hashMatch && db.signatureValid
+  const panelClass = `validation-panel ${dbOk ? "success" : "fail"}`
 
-        <div>
-          DB: Hash {result.db?.hashMatch ? "✓" : "✗"} · Sig {result.db?.signatureValid ? "✓" : "✗"}
-        </div>
+  return (
+    <div className={panelClass}>
+      <h4>{label} Verification</h4>
 
-        <div>
-          Transit: Hash {result.transit?.hashMatch ? "✓" : "✗"} · Sig {result.transit?.signatureValid ? "✓" : "✗"}
-        </div>
-
-        <div style={{ fontWeight: "bold", color: dbOk && transitOk ? "green" : "red" }}>
-          {dbOk && transitOk ? " Verified" : "Failed"}
-        </div>
+      {/* STORED HASH */}
+      <div className="validation-row">
+        <label>Stored Hash</label>
+        <code>{db.storedHash || "—"}</code>
       </div>
-    )
-  }
+
+      {/* RECOMPUTED HASH */}
+      <div className="validation-row">
+        <label>Recomputed Hash</label>
+        <code>{db.computedHash || "—"}</code>
+      </div>
+
+      {/* HASH MATCH */}
+      <div className="validation-row">
+        <label>DB Integrity</label>
+        <span className={db.hashMatch ? "ok" : "fail"}>
+          {db.hashMatch ? "MATCH " : "MISMATCH "}
+        </span>
+      </div>
+
+      {/* SIGNATURE */}
+      <div className="validation-row">
+        <label>Signature</label>
+        <span className={db.signatureValid ? "ok" : "fail"}>
+          {db.signatureValid ? "VALID (ECDSA P-256) " : "INVALID "}
+        </span>
+      </div>
+
+      {/* SIGNER */}
+      <div className="validation-row">
+  <label>Signed By</label>
+  <span>{label}</span>
+</div>
+
+      {/* FINAL */}
+      <div className="validation-final">
+        {dbOk
+          ? " Record Verified & Untampered"
+          : "Integrity Compromised"}
+      </div>
+    </div>
+  )
+}
 
   return (
     <div className="dashboard-layout">
@@ -3906,11 +3808,12 @@ if (contentType && contentType.includes("application/json")) {
                 value={batchCode}
                 onChange={(e) => setBatchCode(e.target.value)}
               />
+              <input type="file" accept="image/*" onChange={handleQRUpload} />
               <button className="btn-secondary" onClick={fetchBatch}>
                 Verify Batch
               </button>
             </div>
-
+            
             {error && <p className="error-text">{error}</p>}
 
             {data && (
@@ -3919,37 +3822,55 @@ if (contentType && contentType.includes("application/json")) {
                 {/* FARMER */}
                 <div className="verification-block">
                   <h3>Farmer Data</h3>
-                  <span>{collection?.herbName}</span>
-                  <span>{collection?.quantity} kg</span>
-                  <span>{collection?.location}</span>
-                  <span>{collection?.canonicalTimestamp}</span>
+                  <div>Herb Name: {collection?.herbName}</div>
+                  <div>Quantity: {collection?.quantity} g</div>
+                  <div>Location of Collection: {collection?.location}</div>
+                  <div>Collection Time: {collection?.canonicalTimestamp}</div>
+                  <div>Collection ID: {collection?.id}</div>
                 </div>
 
                 {/* LAB */}
                 <div className="verification-block">
                   <h3>Lab Result</h3>
-                  <span>{lab?.result}</span>
-                  <span>{lab?.remarks}</span>
+                  <div>Result: {lab?.result}</div>
+                  <div>Remarks: {lab?.remarks}</div>
                 </div>
 
                 {/* MANUFACTURER */}
                 <div className="verification-block">
                   <h3>Manufacturing</h3>
-                  <span>{batch?.batchName}</span>
-                  <span>{batch?.expiryDate}</span>
+                  <div>Batch Name: {batch?.batchName}</div>
+                  <div>Expiry Date: {batch?.expiryDate}</div>
                 </div>
 
                 {/* VALIDATION */}
                 <div className="trace-actions">
-                  <button onClick={() => runValidation("Farmer")}>Validate Farmer</button>
-                  <ValidationBadge label="Farmer" result={validationResults["Farmer"]} />
 
-                  <button onClick={() => runValidation("Lab")}>Validate Lab</button>
-                  <ValidationBadge label="Lab" result={validationResults["Lab"]} />
+  {/* FARMER */}
+  <div className="validation-group">
+    <button className="btn-secondary" onClick={() => runValidation("Farmer")}>
+      Validate Farmer
+    </button>
+    <ValidationBadge label="Farmer" result={validationResults["Farmer"]} />
+  </div>
 
-                  <button onClick={() => runValidation("Manufacturer")}>Validate Manufacturer</button>
-                  <ValidationBadge label="Manufacturer" result={validationResults["Manufacturer"]} />
-                </div>
+  {/* LAB */}
+  <div className="validation-group">
+    <button className="btn-secondary" onClick={() => runValidation("Lab")}>
+      Validate Lab
+    </button>
+    <ValidationBadge label="Lab" result={validationResults["Lab"]} />
+  </div>
+
+  {/* MANUFACTURER */}
+  <div className="validation-group">
+    <button className="btn-secondary" onClick={() => runValidation("Manufacturer")}>
+      Validate Manufacturer
+    </button>
+    <ValidationBadge label="Manufacturer" result={validationResults["Manufacturer"]} />
+  </div>
+
+</div>
 
               </div>
             )}
@@ -6272,7 +6193,22 @@ function ManufacturerDashboard() {
 export default ManufacturerDashboard
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 herbtrace/front/src/dashboards/manufacturer/MyBatches.jsx:
+
 import { useEffect, useState } from "react"
 
 const ManufacturingRecords = () => {
@@ -6299,11 +6235,22 @@ const ManufacturingRecords = () => {
 
       setBatches(data)
 
+
     } catch (err) {
       console.error(err)
       setError("Server error")
     }
   }
+
+  const downloadQR = (batch) => {
+  const link = document.createElement("a")
+  link.href = batch.qrCode
+  link.download = `${batch.batchCode}.png`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+  
 
   useEffect(() => { load() }, [])
 
@@ -6326,10 +6273,12 @@ const ManufacturingRecords = () => {
             <th>Final Qty (g)</th>
             <th>Expiry</th>
             <th>Action</th>
+            <th>QR Code</th>
           </tr>
         </thead>
         <tbody>
           {batches.map((b) => (
+            console.log(b),
             <tr key={b.id}>
               <td>{b.batchCode}</td>
               <td>{b.batchName}</td>
@@ -6344,6 +6293,20 @@ const ManufacturingRecords = () => {
                   View Details
                 </button>
               </td>
+              <td>
+  {b.qrCode && (
+    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+      <img src={b.qrCode} alt="QR Code" width="100" />
+
+      <button
+        className="btn-secondary"
+        onClick={() => downloadQR(b)}
+      >
+        Download
+      </button>
+    </div>
+  )}
+</td>
             </tr>
           ))}
         </tbody>
@@ -6380,7 +6343,7 @@ const ManufacturingRecords = () => {
 
               <div className="info-block">
                 <label>Original Quantity</label>
-                <span>{selectedBatch.labResult.collection.quantity} kg</span>
+                <span>{selectedBatch.labResult.collection.quantity} g</span>
               </div>
 
               <div className="info-block">
@@ -6450,6 +6413,10 @@ const ManufacturingRecords = () => {
                   {new Date(selectedBatch.createdAt).toLocaleString()}
                 </span>
               </div>
+              <img src={selectedBatch.qrCode} width="200" />
+<button class="btn-secondary" onClick={() => downloadQR(selectedBatch)}>
+  Download QR
+</button>
 
             </div>
           </div>
@@ -6460,6 +6427,7 @@ const ManufacturingRecords = () => {
 }
 
 export default ManufacturingRecords
+
 
 
 

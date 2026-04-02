@@ -5,7 +5,7 @@ import {
   generateHash,
   signData,
 } from "../utils/crypto.utils.js"
-
+import QRCode from "qrcode"
 
 export const getApprovedResults = async (req, res) => {
   try {
@@ -60,7 +60,10 @@ export const getApprovedResults = async (req, res) => {
 export const createBatch = async (req, res) => {
   try {
     const manufacturerId = req.user.id
+    //const batchCode = `BATCH-${String(count + 1).padStart(3, "0")}`
 
+    // ✅ GENERATE QR HERE
+    
     const {
       labResultId,
       batchName,
@@ -102,7 +105,9 @@ export const createBatch = async (req, res) => {
 
     const count = await prisma.manufacturingBatch.count()
     const batchCode = `BATCH-${String(count + 1).padStart(3, "0")}`
-
+    
+    const qrData = batchCode
+    const qrCodeBase64 = await QRCode.toDataURL(qrData)
     const batchId = crypto.randomUUID()
 
     // ✅ Generate timestamp — stored separately so verification can rebuild exactly
@@ -127,6 +132,7 @@ export const createBatch = async (req, res) => {
       data: {
         id: batchId,
         batchCode,
+        qrCode: qrCodeBase64,
         batchName,
         herbUsedQuantity: Number(herbUsedQuantity),
         finalProductQuantity: Number(finalProductQuantity),
