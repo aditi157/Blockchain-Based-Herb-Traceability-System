@@ -37,6 +37,8 @@ model Collection {
   farmerId           String
   assignedLabId      String?
   createdAt          DateTime @default(now())
+  blockchainHash     String?
+  txHash             String?
 
   farmer     Organization @relation("FarmerCollections", fields: [farmerId], references: [id])
   labResults LabResult[]
@@ -54,7 +56,8 @@ model LabResult {
   labId              String
   assignedMfgId      String?
   createdAt          DateTime @default(now())
-
+  blockchainHash     String?
+  txHash             String?
   collection Collection @relation(fields: [collectionId], references: [id])
 
   lab                  Organization         @relation("LabResults", fields: [labId], references: [id])
@@ -77,7 +80,8 @@ model ManufacturingBatch {
   manufacturerId        String
   labResultId           String
   createdAt             DateTime  @default(now())
-
+  blockchainHash        String?
+  txHash                String?
   manufacturer Organization @relation(fields: [manufacturerId], references: [id])
   labResult    LabResult    @relation(fields: [labResultId], references: [id])
 }

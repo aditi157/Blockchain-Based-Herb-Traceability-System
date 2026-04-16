@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useEffect } from "react"
 import Sidebar from "../../components/Sidebar"
 import SavedRecords from "./SavedRecords"
 import {
@@ -9,7 +10,6 @@ import {
   buildManufacturingCanonical
 } from "../../utils/crypto"
 import jsQR from "jsqr"
-
 
 
 
@@ -301,32 +301,142 @@ if (contentType && contentType.includes("application/json")) {
   //   )
   // }
 
-  const ValidationBadge = ({ label, result }) => {
-  if (!result) return null
+//   const ValidationBadge = ({ label, result }) => {
+//   if (!result) return null
 
-  const db = result.db || {}
-  const transit = result.transit || {}
+//   const db = result.db || {}
+//   const transit = result.transit || {}
 
-  const dbOk = db.hashMatch && db.signatureValid
-  const panelClass = `validation-panel ${dbOk ? "success" : "fail"}`
+//   const dbOk = db.hashMatch && db.signatureValid
+//   const panelClass = `validation-panel ${dbOk ? "success" : "fail"}`
+
+//   return (
+//     <div className={panelClass}>
+//       <h4>{label} Verification</h4>
+
+//       {/* STORED HASH */}
+//       <div className="validation-row">
+//         <label>Stored Hash</label>
+//         <code>{db.storedHash || "—"}</code>
+//       </div>
+
+//       {/* RECOMPUTED HASH */}
+//       <div className="validation-row">
+//         <label>Recomputed Hash</label>
+//         <code>{db.computedHash || "—"}</code>
+//       </div>
+
+//       {/* HASH MATCH */}
+//       <div className="validation-row">
+//         <label>DB Integrity</label>
+//         <span className={db.hashMatch ? "ok" : "fail"}>
+//           {db.hashMatch ? "MATCH " : "MISMATCH "}
+//         </span>
+//       </div>
+
+//       {/* SIGNATURE */}
+//       <div className="validation-row">
+//         <label>Signature</label>
+//         <span className={db.signatureValid ? "ok" : "fail"}>
+//           {db.signatureValid ? "VALID (ECDSA P-256) " : "INVALID "}
+//         </span>
+//       </div>
+
+//       {/* SIGNER */}
+//       <div className="validation-row">
+//   <label>Signed By</label>
+//   <span>{label}</span>
+// </div>
+
+//       {/* FINAL */}
+//       <div className="validation-final">
+//         {dbOk
+//           ? " Record Verified & Untampered"
+//           : "Integrity Compromised"}
+//       </div>
+//     </div>
+//   )
+// }
+
+
+// const ValidationBadge = ({ label, result }) => {
+//   if (!result) return null
+
+//   const db = result.db || {}
+//   const dbOk = db.hashMatch && db.signatureValid && db.blockchainValid
+
+//   return (
+//     <div className={`validation-panel ${dbOk ? "success" : "fail"}`}>
+//       <h4>{label} Verification</h4>
+
+//       <div className="validation-row">
+//         <label>Stored Hash</label>
+//         <code>{db.storedHash || "—"}</code>
+//       </div>
+
+//       <div className="validation-row">
+//         <label>Recomputed Hash</label>
+//         <code>{db.computedHash || "—"}</code>
+//       </div>
+
+//       <div className="validation-row">
+//         <label>DB Integrity</label>
+//         <span className={db.hashMatch ? "ok" : "fail"}>
+//           {db.hashMatch ? "MATCH " : "MISMATCH "}
+//         </span>
+//       </div>
+
+//       <div className="validation-row">
+//         <label>Signature</label>
+//         <span className={db.signatureValid ? "ok" : "fail"}>
+//           {db.signatureValid ? "VALID " : "INVALID "}
+//         </span>
+//       </div>
+
+//       <div className="validation-row">
+//         <label>Blockchain</label>
+//         <span className={db.blockchainValid ? "ok" : "fail"}>
+//           {db.blockchainValid ? "VERIFIED ON-CHAIN " : "NOT ANCHORED "}
+//         </span>
+//       </div>
+
+//       {db.etherscan && (
+//         <a href={db.etherscan} target="_blank">
+//           🔗 View on Blockchain
+//         </a>
+//       )}
+
+//       <div className="validation-final">
+//         {dbOk
+//           ? " Fully Verified (DB + Signature + Blockchain)"
+//           : " Verification Failed"}
+//       </div>
+//     </div>
+//   )
+// }
+
+const ValidationBadge = ({ label, result }) => {
+  if (!result) return null;
+
+  const db = result.db || {};
+
+  // ✅ IGNORE blockchain for now
+  const dbOk = db.hashMatch && db.signatureValid;
 
   return (
-    <div className={panelClass}>
+    <div className={`validation-panel ${dbOk ? "success" : "fail"}`}>
       <h4>{label} Verification</h4>
 
-      {/* STORED HASH */}
       <div className="validation-row">
         <label>Stored Hash</label>
         <code>{db.storedHash || "—"}</code>
       </div>
 
-      {/* RECOMPUTED HASH */}
       <div className="validation-row">
         <label>Recomputed Hash</label>
         <code>{db.computedHash || "—"}</code>
       </div>
 
-      {/* HASH MATCH */}
       <div className="validation-row">
         <label>DB Integrity</label>
         <span className={db.hashMatch ? "ok" : "fail"}>
@@ -334,31 +444,46 @@ if (contentType && contentType.includes("application/json")) {
         </span>
       </div>
 
-      {/* SIGNATURE */}
       <div className="validation-row">
         <label>Signature</label>
         <span className={db.signatureValid ? "ok" : "fail"}>
-          {db.signatureValid ? "VALID (ECDSA P-256) " : "INVALID "}
+          {db.signatureValid ? "VALID " : "INVALID "}
         </span>
       </div>
 
-      {/* SIGNER */}
+      {/* 🔥 TEMP: Blockchain shown but NOT affecting status */}
       <div className="validation-row">
-  <label>Signed By</label>
-  <span>{label}</span>
-</div>
+        <label>Blockchain</label>
+        <span className={db.blockchainValid ? "ok" : "warn"}>
+          {db.blockchainValid ? "ANCHORED " : "CHECK ETHERSCAN "}
+        </span>
+      </div>
 
-      {/* FINAL */}
+      {/* 🔗 ETHERSCAN BUTTON */}
+      {db.etherscan && (
+        <a
+          href={db.etherscan}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="etherscan-btn"
+        >
+          🔗 View on Blockchain
+        </a>
+      )}
+
+      {/* ✅ FINAL STATUS (NO blockchain dependency) */}
       <div className="validation-final">
         {dbOk
-          ? " Record Verified & Untampered"
-          : "Integrity Compromised"}
+          ? " Verified (Data + Signature)"
+          : " Integrity Compromised"}
       </div>
     </div>
-  )
-}
+  );
+};
 
-  return (
+console.log("DB OBJECT:", validationResults.Manufacturer?.db);
+
+return (
     <div className="dashboard-layout">
       <Sidebar role="Consumer" activeTab={activeTab} setActiveTab={setActiveTab} onLogout={handleLogout} />
 

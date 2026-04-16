@@ -1,0 +1,777 @@
+smart contracts
+
+
+
+
+
+smartcontract/contracts/AyurvedicHerbProvenance.sol:
+
+
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract AyurvedicHerbProvenance {
+
+    /* ============================================================
+                            ROLE SYSTEM
+    ============================================================ */
+
+    mapping(address => mapping(uint256 => bool)) public roles;
+    mapping(uint256 => string) public roleNames;
+    mapping(uint256 => bool) public roleExists;
+
+    uint256 public constant ADMIN_ROLE = 1;
+    uint256 public constant FARMER_ROLE = 2;
+    uint256 public constant GPS_VERIFIER_ROLE = 3;
+    uint256 public constant SUPPLIER_ROLE = 4;
+    uint256 public constant PROCESSOR_ROLE = 5;
+    uint256 public constant LAB_TESTER_ROLE = 6;
+    uint256 public constant TRANSPORTER_ROLE = 7;
+    uint256 public constant EXPORTER_ROLE = 8;
+    uint256 public constant RETAILER_ROLE = 9;
+    uint256 public constant REGULATOR_ROLE = 10;
+    uint256 public constant CONSUMER_ROLE = 11;
+    uint256 public constant QUALITY_AUDITOR_ROLE = 12;
+
+    modifier onlyRole(uint256 roleId) {
+        require(roles[msg.sender][roleId], "Not authorized");
+        _;
+    }
+
+    modifier onlyAdmin() {
+        require(roles[msg.sender][ADMIN_ROLE], "Admin only");
+        _;
+    }
+
+    constructor() {
+        roleNames[ADMIN_ROLE] = "ADMIN";
+        roleExists[ADMIN_ROLE] = true;
+        roles[msg.sender][ADMIN_ROLE] = true;
+
+        roleNames[FARMER_ROLE] = "FARMER";
+        roleNames[GPS_VERIFIER_ROLE] = "GPS_VERIFIER";
+        roleNames[SUPPLIER_ROLE] = "SUPPLIER";
+        roleNames[PROCESSOR_ROLE] = "PROCESSOR";
+        roleNames[LAB_TESTER_ROLE] = "LAB_TESTER";
+        roleNames[TRANSPORTER_ROLE] = "TRANSPORTER";
+        roleNames[EXPORTER_ROLE] = "EXPORTER";
+        roleNames[RETAILER_ROLE] = "RETAILER";
+        roleNames[REGULATOR_ROLE] = "REGULATOR";
+        roleNames[CONSUMER_ROLE] = "CONSUMER";
+        roleNames[QUALITY_AUDITOR_ROLE] = "QUALITY_AUDITOR";
+
+        for (uint256 i = 2; i <= 12; i++) {
+            roleExists[i] = true;
+        }
+    }
+
+    function registerUser(address user, uint256 roleId)
+        external
+        onlyAdmin
+    {
+        require(roleExists[roleId], "Role does not exist");
+        roles[user][roleId] = true;
+    }
+
+    function revokeUserRole(address user, uint256 roleId)
+        external
+        onlyAdmin
+    {
+        roles[user][roleId] = false;
+    }
+
+    function createRole(uint256 roleId, string calldata name)
+        external
+        onlyAdmin
+    {
+        require(!roleExists[roleId], "Role already exists");
+        require(roleId != 0, "Invalid role");
+
+        roleNames[roleId] = name;
+        roleExists[roleId] = true;
+    }
+
+    /* ============================================================
+                            HERB STRUCT
+    ============================================================ */
+
+    struct Herb {
+        bytes32 name;
+        bytes32 gpsLocation;
+
+        address collector;
+        address verifier;
+
+        bool verified;
+        bool labApproved;
+        bool exportApproved;
+        bool frozen;
+        bool locked;
+
+        bytes32 labReportHash;
+
+        address labTester;
+        address exporter;
+        address frozenBy;
+    }
+
+    mapping(bytes32 => Herb) private herbs;
+
+    /* ============================================================
+                            EVENTS
+    ============================================================ */
+
+    event HerbRecorded(bytes32 batchId, address indexed collector);
+    event HerbVerified(bytes32 batchId, address indexed verifier);
+    event StageUpdated(bytes32 batchId, Stage stage, address indexed actor);
+    event ProofAnchored(
+        bytes32 indexed collectionId,
+        bytes32 hash,
+        address indexed actor,
+        uint256 timestamp
+    );
+
+    /* ============================================================
+                            CORE FUNCTIONS
+    ============================================================ */
+
+    function recordHerb(
+        bytes32 name,
+        bytes32 batchId,
+        bytes32 gpsLocation
+    )
+        external
+        onlyRole(FARMER_ROLE)
+    {
+        require(herbs[batchId].collector == address(0), "Batch exists");
+
+        herbs[batchId] = Herb({
+            name: name,
+            gpsLocation: gpsLocation,
+            collector: msg.sender,
+            verifier: address(0),
+            verified: false,
+            labApproved: false,
+            exportApproved: false,
+            frozen: false,
+            locked: false,
+            labReportHash: 0,
+            labTester: address(0),
+            exporter: address(0),
+            frozenBy: address(0)
+        });
+
+        emit HerbRecorded(batchId, msg.sender);
+    }
+
+    function verifyHerb(bytes32 batchId)
+        external
+        onlyRole(GPS_VERIFIER_ROLE)
+    {
+        Herb storage h = herbs[batchId];
+
+        require(h.collector != address(0), "Invalid batch");
+        require(!h.verified, "Already verified");
+        require(!h.frozen, "Batch frozen");
+
+        h.verified = true;
+        h.verifier = msg.sender;
+
+        emit HerbVerified(batchId, msg.sender);
+    }
+
+    function certifyLab(bytes32 batchId, bytes32 reportHash)
+        external
+        onlyRole(LAB_TESTER_ROLE)
+    {
+        Herb storage h = herbs[batchId];
+
+        require(h.collector != address(0), "Invalid batch");
+        require(h.verified, "GPS not verified");
+        require(!h.labApproved, "Already lab approved");
+        require(!h.frozen && !h.locked, "Batch restricted");
+
+        h.labApproved = true;
+        h.labReportHash = reportHash;
+        h.labTester = msg.sender;
+    }
+
+    function approveExport(bytes32 batchId)
+        external
+        onlyRole(EXPORTER_ROLE)
+    {
+        Herb storage h = herbs[batchId];
+
+        require(h.collector != address(0), "Invalid batch");
+        require(h.labApproved, "Lab approval required");
+        require(!h.exportApproved, "Already exported");
+        require(!h.frozen && !h.locked, "Batch restricted");
+
+        h.exportApproved = true;
+        h.exporter = msg.sender;
+    }
+
+    function freezeBatch(bytes32 batchId)
+        external
+        onlyRole(REGULATOR_ROLE)
+    {
+        Herb storage h = herbs[batchId];
+
+        require(h.collector != address(0), "Invalid batch");
+        require(!h.frozen, "Already frozen");
+
+        h.frozen = true;
+        h.frozenBy = msg.sender;
+    }
+
+    function unfreezeBatch(bytes32 batchId)
+        external
+        onlyRole(REGULATOR_ROLE)
+    {
+        Herb storage h = herbs[batchId];
+
+        require(h.collector != address(0), "Invalid batch");
+        require(h.frozen, "Not frozen");
+
+        h.frozen = false;
+    }
+
+    function lockBatch(bytes32 batchId)
+        external
+        onlyRole(RETAILER_ROLE)
+    {
+        Herb storage h = herbs[batchId];
+
+        require(h.collector != address(0), "Invalid batch");
+        require(!h.locked, "Already locked");
+        require(h.exportApproved, "Not exported");
+
+        h.locked = true;
+    }
+
+    function getHerb(bytes32 batchId)
+        external
+        view
+        returns (Herb memory)
+    {
+        return herbs[batchId];
+    }
+
+    /* ============================================================
+                        SUPPLY CHAIN STAGES
+    ============================================================ */
+
+    enum Stage {
+        COLLECTED,
+        PROCESSED,
+        PACKAGED,
+        TRANSPORTED,
+        SOLD
+    }
+
+    struct StageUpdate {
+        Stage stage;
+        bytes32 details;
+        uint256 timestamp;
+        address actor;
+    }
+
+    mapping(bytes32 => StageUpdate[]) private batchHistory;
+
+    function updateStage(
+        bytes32 batchId,
+        Stage stage,
+        bytes32 details
+    )
+        external
+    {
+        require(
+            roles[msg.sender][PROCESSOR_ROLE] ||
+            roles[msg.sender][SUPPLIER_ROLE] ||
+            roles[msg.sender][TRANSPORTER_ROLE] ||
+            roles[msg.sender][RETAILER_ROLE],
+            "Not authorized"
+        );
+
+        require(herbs[batchId].collector != address(0), "Invalid batch");
+        require(!herbs[batchId].locked && !herbs[batchId].frozen, "Restricted");
+
+        batchHistory[batchId].push(
+            StageUpdate({
+                stage: stage,
+                details: details,
+                timestamp: block.timestamp,
+                actor: msg.sender
+            })
+        );
+
+        emit StageUpdated(batchId, stage, msg.sender);
+    }
+
+    function getBatchHistory(bytes32 batchId)
+        external
+        view
+        returns (StageUpdate[] memory)
+    {
+        return batchHistory[batchId];
+    }
+
+    /* ============================================================
+                        HASH ANCHORING
+    ============================================================ */
+
+    mapping(bytes32 => bytes32[]) private anchoredHashes;
+    mapping(bytes32 => mapping(bytes32 => bool)) private hashExists;
+    mapping(address => bool) public authorizedAnchors;
+
+    function setAnchorAuthorization(address actor, bool allowed)
+        external
+        onlyRole(ADMIN_ROLE)
+    {
+        authorizedAnchors[actor] = allowed;
+    }
+
+    function anchorHash(bytes32 collectionId, bytes32 hash)
+        external
+    {
+        require(authorizedAnchors[msg.sender], "Not authorized");
+        require(!hashExists[collectionId][hash], "Already anchored");
+
+        anchoredHashes[collectionId].push(hash);
+        hashExists[collectionId][hash] = true;
+
+        emit ProofAnchored(
+            collectionId,
+            hash,
+            msg.sender,
+            block.timestamp
+        );
+    }
+
+    function verifyHash(bytes32 collectionId, bytes32 hash)
+        external
+        view
+        returns (bool)
+    {
+        return hashExists[collectionId][hash];
+    }
+
+    function getAnchoredHashCount(bytes32 collectionId)
+        external
+        view
+        returns (uint256)
+    {
+        return anchoredHashes[collectionId].length;
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+smartcontract/scripts/deploy.js
+const { ethers } = require("hardhat");
+
+// Role constants from your contract
+const FARMER_ROLE = 2;
+const GPS_VERIFIER_ROLE = 3;
+const LAB_TESTER_ROLE = 6;
+
+async function main() {
+  // 1️⃣ Use your single wallet
+  const [wallet] = await ethers.getSigners();
+  console.log("Using wallet:", wallet.address);
+
+  // 2️⃣ Deploy the contract
+  const Contract = await ethers.getContractFactory("AyurvedicHerbProvenance");
+  const contract = await Contract.connect(wallet).deploy();
+  await contract.deployed();
+  console.log("Contract deployed at:", contract.address);
+
+  // 3️⃣ Register your wallet for roles
+  console.log("Registering roles for this wallet...");
+  const txFarmer = await contract.registerUser(wallet.address, FARMER_ROLE);
+  await txFarmer.wait();
+
+  const txVerifier = await contract.registerUser(wallet.address, GPS_VERIFIER_ROLE);
+  await txVerifier.wait();
+
+  const txLab = await contract.registerUser(wallet.address, LAB_TESTER_ROLE);
+  await txLab.wait();
+  console.log("Roles registered ✅");
+
+  // 4️⃣ Define herbs with GPS, batch IDs, and names
+  const herbs = [
+    { name: "Tulsi", batchId: "BATCH001", gps: "12.9716N_77.5946E" },
+    { name: "Neem", batchId: "BATCH002", gps: "12.2958N_76.6394E" },
+    { name: "Ashwagandha", batchId: "BATCH003", gps: "13.0827N_80.2707E" }
+  ];
+
+  // 5️⃣ Process each herb
+  for (let herb of herbs) {
+    const batchIdBytes = ethers.utils.formatBytes32String(herb.batchId);
+    console.log(`\nProcessing herb: ${herb.name}, batch: ${herb.batchId}, GPS: ${herb.gps}`);
+
+    // Farmer records the herb
+    const txRecord = await contract.recordHerb(
+      ethers.utils.formatBytes32String(herb.name),
+      batchIdBytes,
+      ethers.utils.formatBytes32String(herb.gps)
+    );
+    await txRecord.wait();
+    console.log(`✅ Recorded by Farmer`);
+
+    // GPS Verifier verifies the herb
+    const txVerify = await contract.verifyHerb(batchIdBytes);
+    await txVerify.wait();
+    console.log(`✅ Verified by GPS Verifier`);
+
+    // Lab Tester certifies the batch
+    const txLabApprove = await contract.certifyLab(
+      batchIdBytes,
+      ethers.utils.formatBytes32String(`LAB_REPORT_${herb.batchId}`)
+    );
+    await txLabApprove.wait();
+    console.log(`✅ Lab approved`);
+  }
+
+  console.log("\nAll herbs processed successfully through supply chain ✅");
+}
+
+main()
+  .then(() => process.exit(0))
+  .catch(err => {
+    console.error(err);
+    process.exit(1);
+  });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+smartcontract/scripts/send-op-tx.ts
+
+import { network } from "hardhat";
+
+const { ethers } = await network.connect({
+  network: "hardhatOp",
+  chainType: "op",
+});
+
+console.log("Sending transaction using the OP chain type");
+
+const [sender] = await ethers.getSigners();
+
+console.log("Sending 1 wei from", sender.address, "to itself");
+
+console.log("Sending L2 transaction");
+const tx = await sender.sendTransaction({
+  to: sender.address,
+  value: 1n,
+});
+
+await tx.wait();
+
+console.log("Transaction sent successfully");
+
+
+
+
+
+
+
+
+
+
+
+
+
+smartcontract/test/AyurvedicHerbProvenance.js:
+
+const { expect } = require("chai");
+const { ethers } = require("hardhat");
+
+function toBytes32(text) {
+  return ethers.utils.formatBytes32String(text);
+}
+
+describe("AyurvedicHerbProvenance", function () {
+
+  async function deploy() {
+    const [admin, collector, verifier, outsider] = await ethers.getSigners();
+
+    const Contract = await ethers.getContractFactory("AyurvedicHerbProvenance");
+    const contract = await Contract.deploy();
+    await contract.deployed();
+
+    await contract.registerUser(collector.address, 2); // FARMER
+    await contract.registerUser(verifier.address, 3);  // GPS_VERIFIER
+
+    return { contract, admin, collector, verifier, outsider };
+  }
+
+  it("Registers users with roles", async function () {
+    const { contract, collector } = await deploy();
+    expect(await contract.roles(collector.address, 2)).to.equal(true);
+  });
+
+  it("Allows collector to record herb", async function () {
+    const { contract, collector } = await deploy();
+
+    await contract.connect(collector).recordHerb(
+      toBytes32("Ashwagandha"),
+      toBytes32("BATCH1"),
+      toBytes32("12.97,77.59")
+    );
+
+    const herb = await contract.getHerb(toBytes32("BATCH1"));
+    expect(herb.verified).to.equal(false);
+  });
+
+  it("Allows verifier to verify herb", async function () {
+    const { contract, collector, verifier } = await deploy();
+
+    await contract.connect(collector).recordHerb(
+      toBytes32("Tulsi"),
+      toBytes32("BATCH2"),
+      toBytes32("11.01,76.95")
+    );
+
+    await contract.connect(verifier).verifyHerb(
+      toBytes32("BATCH2")
+    );
+
+    const herb = await contract.getHerb(toBytes32("BATCH2"));
+    expect(herb.verified).to.equal(true);
+    expect(herb.verifier).to.equal(verifier.address);
+  });
+
+  it("Should revert when unauthorized user tries to record herb", async function () {
+    const { contract, outsider } = await deploy();
+
+    await expect(
+      contract.connect(outsider).recordHerb(
+        toBytes32("Neem"),
+        toBytes32("BATCH3"),
+        toBytes32("10.00,10.00")
+      )
+    ).to.be.revertedWith("Not authorized");
+  });
+
+  it("Should not allow verifier to record herb", async function () {
+    const { contract, verifier } = await deploy();
+
+    await expect(
+      contract.connect(verifier).recordHerb(
+        toBytes32("Brahmi"),
+        toBytes32("BATCH4"),
+        toBytes32("9.99,9.99")
+      )
+    ).to.be.revertedWith("Not authorized");
+  });
+
+  it("Should not allow double verification", async function () {
+    const { contract, collector, verifier } = await deploy();
+
+    await contract.connect(collector).recordHerb(
+      toBytes32("Amla"),
+      toBytes32("BATCH5"),
+      toBytes32("8.88,8.88")
+    );
+
+    await contract.connect(verifier).verifyHerb(
+      toBytes32("BATCH5")
+    );
+
+    await expect(
+      contract.connect(verifier).verifyHerb(
+        toBytes32("BATCH5")
+      )
+    ).to.be.revertedWith("Already verified");
+  });
+
+});
+
+describe("AyurvedicHerbProvenance – Hash Anchoring", function () {
+
+  async function deployWithAnchor() {
+    const [admin, anchor, outsider] = await ethers.getSigners();
+
+    const Contract = await ethers.getContractFactory("AyurvedicHerbProvenance");
+    const contract = await Contract.deploy();
+    await contract.deployed();
+
+    await contract.setAnchorAuthorization(anchor.address, true);
+
+    return { contract, anchor, outsider };
+  }
+
+  it("Allows authorized actor to anchor a hash", async function () {
+    const { contract, anchor } = await deployWithAnchor();
+
+    const collectionId = toBytes32("COLL-001");
+    const hash = ethers.utils.keccak256(
+      ethers.utils.toUtf8Bytes("data1")
+    );
+
+    await contract.connect(anchor).anchorHash(collectionId, hash);
+
+    expect(
+      await contract.verifyHash(collectionId, hash)
+    ).to.equal(true);
+  });
+
+  it("Prevents duplicate hash anchoring", async function () {
+    const { contract, anchor } = await deployWithAnchor();
+
+    const collectionId = toBytes32("COLL-002");
+    const hash = ethers.utils.keccak256(
+      ethers.utils.toUtf8Bytes("data2")
+    );
+
+    await contract.connect(anchor).anchorHash(collectionId, hash);
+
+    await expect(
+      contract.connect(anchor).anchorHash(collectionId, hash)
+    ).to.be.revertedWith("Already anchored");
+  });
+
+  it("Blocks unauthorized anchoring", async function () {
+    const { contract, outsider } = await deployWithAnchor();
+
+    await expect(
+      contract.connect(outsider).anchorHash(
+        toBytes32("COLL-003"),
+        ethers.utils.keccak256(
+          ethers.utils.toUtf8Bytes("data3")
+        )
+      )
+    ).to.be.revertedWith("Not authorized");
+  });
+
+  it("Returns correct anchored hash count", async function () {
+    const { contract, anchor } = await deployWithAnchor();
+
+    const collectionId = toBytes32("COLL-004");
+
+    await contract.connect(anchor).anchorHash(
+      collectionId,
+      ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes("one")
+      )
+    );
+
+    await contract.connect(anchor).anchorHash(
+      collectionId,
+      ethers.utils.keccak256(
+        ethers.utils.toUtf8Bytes("two")
+      )
+    );
+
+    const count = await contract.getAnchoredHashCount(collectionId);
+
+    expect(count).to.equal(2);
+  });
+
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+smartcontract/ignition/modules/Counter.js:
+
+import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
+
+export default buildModule("CounterModule", (m) => {
+  const counter = m.contract("Counter");
+
+  m.call(counter, "incBy", [5n]);
+
+  return { counter };
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+smartcontract/herbs.json:
+[
+  {"name": "Tulsi", "batchId": "BATCH001", "gps": "12.9716N_77.5946E"},
+  {"name": "Neem", "batchId": "BATCH002", "gps": "12.2958N_76.6394E"},
+  {"name": "Ashwagandha", "batchId": "BATCH003", "gps": "13.0827N_80.2707E"},
+  {"name": "Amla", "batchId": "BATCH004", "gps": "19.0760N_72.8777E"},
+  {"name": "Ginger", "batchId": "BATCH005", "gps": "28.7041N_77.1025E"}
+]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+smartcontract/hardhat.config.js:
+
+require("@nomiclabs/hardhat-waffle");
+require("@nomiclabs/hardhat-ethers");
+require("@nomicfoundation/hardhat-verify");
+require("dotenv").config();
+
+module.exports = {
+  solidity: "0.8.20",
+  networks: {
+    sepolia: {
+      url: process.env.SEPOLIA_RPC_URL,
+      accounts: [process.env.PRIVATE_KEY],
+    },
+  },
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_API_KEY,
+  },
+};
+

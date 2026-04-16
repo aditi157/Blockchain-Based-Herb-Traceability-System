@@ -118,7 +118,11 @@ export const validateLab = async (req, res) => {
       signatureValid,
       storedHash: labResult.hash,
       computedHash: rebuiltHash,
-      canonicalData: labResult.canonicalData
+      canonicalData: labResult.canonicalData,
+      txHash: batch.txHash,
+  etherscan: batch.txHash
+    ? `https://sepolia.etherscan.io/tx/${batch.txHash}`
+    : null
     })
 
   } catch (err) {
@@ -170,7 +174,11 @@ export const validateManufacturer = async (req, res) => {
       signatureValid,
       storedHash: batch.hash,
       computedHash: rebuiltHash,
-      canonicalData: batch.canonicalData
+      canonicalData: batch.canonicalData,
+      txHash: batch.txHash,
+  etherscan: batch.txHash
+    ? `https://sepolia.etherscan.io/tx/${batch.txHash}`
+    : null
     })
 
   } catch (err) {

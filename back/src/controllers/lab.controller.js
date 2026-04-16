@@ -1,130 +1,4 @@
-// import prisma from "../config/db.js"
-// import crypto from "crypto"
-// import {
-//   generateHash,
-//   signHash
-// } from "../utils/crypto.utils.js"
-
-// // ==========================
-// // CREATE LAB RESULT
-// // ==========================
-// export const createLabResult = async (req, res) => {
-//   try {
-//     const labId = req.user.id
-//     const { collectionId, result, remarks, assignedMfgId } = req.body
-
-//     // 1️⃣ Get collection
-//     const collection = await prisma.collection.findUnique({
-//       where: { id: collectionId }
-//     })
-
-//     if (!collection) {
-//       return res.status(404).json({ error: "Collection not found" })
-//     }
-
-//     // 2️⃣ Resolve manufacturer UUID (if provided)
-//     let manufacturerUUID = null
-
-//     if (assignedMfgId) {
-//       const manufacturer = await prisma.organization.findUnique({
-//         where: { orgCode: assignedMfgId }
-//       })
-
-//       if (!manufacturer) {
-//         return res.status(400).json({ error: "Manufacturer not found" })
-//       }
-
-//       manufacturerUUID = manufacturer.id
-//     }
-
-//     // 3️⃣ Build canonical string (DO NOT CHANGE ORDER EVER)
-//     const canonicalData =
-//       `collectionId:${collectionId}|` +
-//       `labId:${labId}|` +
-//       `result:${result}|` +
-//       `remarks:${remarks || ""}|` +
-//       `assignedMfgId:${manufacturerUUID || ""}`
-
-//     const hash = generateHash(canonicalData)
-
-//     const lab = await prisma.organization.findUnique({
-//       where: { id: labId }
-//     })
-
-//     const signature = signHash(lab.privateKey, hash)
-
-//     // 4️⃣ Store result
-//     const labResult = await prisma.labResult.create({
-//       data: {
-//         collectionId,
-//         result,
-//         remarks,
-//         canonicalData,
-//         hash,
-//         signature,
-//         labId,
-//         assignedMfgId: manufacturerUUID
-//       }
-//     })
-
-//     res.status(201).json(labResult)
-
-//   } catch (err) {
-//     console.error(err)
-//     res.status(500).json({ error: "Server error" })
-//   }
-// }
-
-
-// export const getPastTests = async (req, res) => {
-//   try {
-//     const results = await prisma.labResult.findMany({
-//       where: { labId: req.user.id },
-//       orderBy: { createdAt: "desc" },
-//       include: {
-//         collection: {
-//           include: {
-//             farmer: true
-//           }
-//         },
-//         assignedMfg: true
-//       }
-//     })
-
-//     res.json(results)
-
-//   } catch (err) {
-//     console.error(err)
-//     res.status(500).json({ error: "Server error" })
-//   }
-// }
-
-// export const getResultsForFarmer = async (req, res) => {
-//   try {
-//     const farmerId = req.user.id
-
-//     const results = await prisma.labResult.findMany({
-//       where: {
-//         collection: {
-//           farmerId: farmerId
-//         }
-//       },
-//       include: {
-//         collection: true,
-//         assignedMfg: true,
-//         lab: true
-//       },
-//       orderBy: { createdAt: "desc" }
-//     })
-
-//     res.json(results)
-//   } catch (err) {
-//     console.error(err)
-//     res.status(500).json({ error: "Server error" })
-//   }
-// }
-
-
+import { anchorHash } from "../services/blockchain.js";
 import prisma from "../config/db.js"
 import crypto from "crypto"
 import {
@@ -179,6 +53,24 @@ export const createLabResult = async (req, res) => {
     })
 
     const hash = generateHash(canonicalData)
+    
+// 🔥 DEBUG
+console.log("ANCHORING LAB:", labResultId, hash);
+
+anchorHash(labResultId, hash)
+  .then(async (tx) => {
+    console.log("LAB TX:", tx);
+
+    await prisma.labResult.update({
+      where: { id: labResultId },
+      data: { txHash: tx }
+    });
+  })
+  .catch((err) => {
+    console.error("LAB BLOCKCHAIN FAILED:", err);
+  });
+
+
 
     const lab = await prisma.organization.findUnique({ where: { id: labId } })
     const signature = signData(lab.privateKey, canonicalData)
@@ -194,7 +86,9 @@ export const createLabResult = async (req, res) => {
         hash,
         signature,
         labId,
-        assignedMfgId: manufacturerUUID
+        assignedMfgId: manufacturerUUID,
+        blockchainHash: hash,
+        txHash: null 
       }
     })
 
@@ -207,24 +101,7 @@ export const createLabResult = async (req, res) => {
 }
 
 
-// export const getPastTests = async (req, res) => {
-//   try {
-//     const results = await prisma.labResult.findMany({
-//       where: { labId: req.user.id },
-//       orderBy: { createdAt: "desc" },
-//       include: {
-//         collection: {
-//           include: { farmer: true }
-//         },
-//         assignedMfg: true
-//       }
-//     })
-//     res.json(results)
-//   } catch (err) {
-//     console.error(err)
-//     res.status(500).json({ error: "Server error" })
-//   }
-// }
+
 
 export const getPastTests = async (req, res) => {
   try {
@@ -321,7 +198,11 @@ export const validateLabResult = async (req, res) => {
       storedHash: labResult.hash,
       recomputedHash: rebuiltHash,
       signer: labResult.lab.orgCode,
-      timestamp: labResult.canonicalTimestamp
+      timestamp: labResult.canonicalTimestamp,
+      txHash: labResult.txHash,
+      etherscan: labResult.txHash
+        ? `https://sepolia.etherscan.io/tx/${labResult.txHash}`
+        : null
     })
 
   } catch (err) {

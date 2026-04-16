@@ -6,7 +6,7 @@ import {
   verifySignature,
   buildCollectionCanonical
 } from "../utils/crypto.utils.js"
-
+import { anchorHash } from "../services/blockchain.js";
 
 export const createCollection = async (req, res) => {
   try {
@@ -40,7 +40,24 @@ export const createCollection = async (req, res) => {
       timestamp
     })
 
-    const hash = generateHash(canonicalData)
+    let txHash = null;
+    const hash = generateHash(canonicalData);
+
+// ✅ NON-BLOCKING blockchain call
+anchorHash(collectionId, hash)
+  .then(async (tx) => {
+    console.log("Blockchain TX:", tx);
+
+    await prisma.collection.update({
+      where: { id: collectionId },
+      data: { txHash: tx }
+    });
+  })
+  .catch((err) => {
+    console.error("Blockchain failed:", err);
+  });
+
+
     //const signature = signHash(farmer.privateKey, hash)
     const signature = signData(farmer.privateKey, canonicalData)
 
@@ -56,10 +73,11 @@ export const createCollection = async (req, res) => {
         hash,
         signature,
         farmerId,
-        assignedLabId
+        assignedLabId,
+        blockchainHash: hash,
+txHash: null,
       }
     })
-
     res.status(201).json(collection)
 
     console.log("\n===== SIGNING DEBUG =====")
@@ -171,13 +189,17 @@ export const validateFarmerSignature = async (req, res) => {
 
     return res.json({
       valid: hashMatch && signatureValid,
-      dbValid: hashMatch,
+      hashMatch,
       signatureValid,
       canonicalMatch,
       storedHash: collection.hash,
       recomputedHash: rebuiltHash,
       signer: collection.farmer.orgCode,
-      timestamp: collection.canonicalTimestamp
+      timestamp: collection.canonicalTimestamp,
+      txHash: collection.txHash,
+      etherscan: collection.txHash
+        ? `https://sepolia.etherscan.io/tx/${collection.txHash}`
+        : null
     })
 
   } catch (err) {
